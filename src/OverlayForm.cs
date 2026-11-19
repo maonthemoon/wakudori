@@ -9,6 +9,7 @@ using System.Windows.Forms;
 namespace Wakudori
 {
     internal delegate void RegionChosenHandler(object sender, SavedRegion region);
+    internal delegate void RegionEditHandler(object sender, SavedRegion region, Rectangle screenRect);
 
     // 1つのモニターを覆う選択画面.
     // 異なるDPIのモニターをまたぐ1枚のウィンドウはずれやすいので, モニターごとに1枚ずつ作る.
@@ -58,7 +59,8 @@ namespace Wakudori
         public event EventHandler SaveRequested;              // Ctrl+S(A3)
         public event RegionChosenHandler RegionChosen;        // 一覧の名前を押した, または数字キー(A4)
         public event RegionChosenHandler RegionHovered;       // 一覧の名前にカーソルが乗った(下見). 離れたらnull
-        public event RegionChosenHandler RegionMenuRequested; // 一覧の名前を右クリックした(名前を変える, 削除)
+        public event RegionEditHandler RegionEditRequested;    // 一覧の名前をダブルクリックした(その場で名前を変える). screenRectは名前の場所
+        public event RegionChosenHandler RegionDeleteRequested; // 一覧の名前の右上の×を押した
         public event EventHandler PreviewCancelRequested;     // 下見をやめて元の枠に戻してほしい(キー操作や枠の操作の前)
 
         // 保存した範囲の一覧(A4, A7). 数字キーのため全フォームが持つが, 描くのはshowListのフォームだけ
@@ -96,6 +98,7 @@ namespace Wakudori
         }
 
         public int MonitorIndex { get { return monitorIndex; } }
+        public float DpiScale { get { return scale; } }
         public Rectangle MonitorBounds { get { return bounds; } }
 
         protected override CreateParams CreateParams
@@ -325,7 +328,7 @@ namespace Wakudori
         private const int MenuItemHeight96 = 32;
         private const int MenuMaxItems = 12;  // これより多ければホイールでスクロール
 
-        internal enum ListHitKind { None, Chip, More, MenuItem, Menu }
+        internal enum ListHitKind { None, Chip, More, MenuItem, Menu, Delete }
 
         internal struct ListHit
         {
@@ -431,7 +434,7 @@ namespace Wakudori
                 for (int k = 0; k < rowItems.Count; k++)
                 {
                     int i = rowItems[k];
-                    bool hot = hover.Kind == ListHitKind.Chip && hover.Region == i;
+                    bool hot = (hover.Kind == ListHitKind.Chip || hover.Kind == ListHitKind.Delete) && hover.Region == i;
                     DrawItem(g, rowRects[k], i, font, badgeFont, center, left, hot, true);
                 }
 
@@ -461,7 +464,7 @@ namespace Wakudori
                         int idx = menuScroll + row;
                         if (idx >= menuItems.Count) break;
                         int i = menuItems[idx];
-                        bool hot = hover.Kind == ListHitKind.MenuItem && hover.Region == i;
+                        bool hot = (hover.Kind == ListHitKind.MenuItem || hover.Kind == ListHitKind.Delete) && hover.Region == i;
                         DrawItem(g, MenuItemRect(menu, row), i, font, badgeFont, center, left, hot, false);
                     }
                     if (menuItems.Count > visible)
@@ -516,11 +519,64 @@ namespace Wakudori
                 Rectangle textRc = new Rectangle(x, rc.Y, rc.Right - x - Scaled(pill ? ChipPadX96 : 10), rc.Height);
                 g.DrawString(regions[i].Name ?? "", font, t, textRc, left);
             }
+
+            // カーソルが乗っている名前には, 削除の×を出す(チップは右上の角, 縦の一覧は右端).
+            if (hot)
+            {
+                Rectangle d = DeleteRect(rc, pill);
+                bool dhot = hover.Kind == ListHitKind.Delete && hover.Region == i;
+                using (SolidBrush b = new SolidBrush(dhot ? Theme.Danger : Theme.Text))
+                using (Pen x2 = new Pen(Theme.Bg, Math.Max(1.5f, 1.6f * scale)))
+                {
+                    g.FillEllipse(b, d);
+                    float c = d.Width * 0.28f;
+                    float cx = d.X + d.Width / 2f, cy = d.Y + d.Height / 2f;
+                    g.DrawLine(x2, cx - c, cy - c, cx + c, cy + c);
+                    g.DrawLine(x2, cx - c, cy + c, cx + c, cy - c);
+                }
+            }
+        }
+
+        private Rectangle DeleteRect(Rectangle rc, bool pill)
+        {
+            int d = Scaled(18);
+            if (pill) return new Rectangle(rc.Right - d + Scaled(5), rc.Top - Scaled(5), d, d);
+            return new Rectangle(rc.Right - d - Scaled(6), rc.Y + (rc.Height - d) / 2, d, d);
+        }
+
+        // 名前(チップか縦の一覧の項目)の場所. 見えていなければEmpty
+        private Rectangle ItemRect(int region, out bool pill)
+        {
+            pill = true;
+            if (rowRects == null) return Rectangle.Empty;
+            for (int k = 0; k < rowItems.Count; k++) if (rowItems[k] == region) return rowRects[k];
+            pill = false;
+            if (!menuOpen) return Rectangle.Empty;
+            int visible;
+            Rectangle menu = MenuRect(out visible);
+            for (int row = 0; row < visible; row++)
+            {
+                int idx = menuScroll + row;
+                if (idx < menuItems.Count && menuItems[idx] == region) return MenuItemRect(menu, row);
+            }
+            return Rectangle.Empty;
         }
 
         private ListHit HitList(Point local)
         {
             if (!HasList || rowRects == null) return ListHit.None;
+            // ×はカーソルが乗っている名前にだけ出ているので, その名前の×だけを先に調べる
+            if (hover.Kind == ListHitKind.Chip || hover.Kind == ListHitKind.MenuItem || hover.Kind == ListHitKind.Delete)
+            {
+                bool pill;
+                Rectangle rc = ItemRect(hover.Region, out pill);
+                if (!rc.IsEmpty)
+                {
+                    Rectangle d = DeleteRect(rc, pill);
+                    d.Inflate(Scaled(2), Scaled(2));
+                    if (d.Contains(local)) return new ListHit(ListHitKind.Delete, hover.Region);
+                }
+            }
             if (menuOpen)
             {
                 int visible;
@@ -551,7 +607,7 @@ namespace Wakudori
                 hover = h;
                 Present();
             }
-            int region = (h.Kind == ListHitKind.Chip || h.Kind == ListHitKind.MenuItem) ? h.Region : -1;
+            int region = (h.Kind == ListHitKind.Chip || h.Kind == ListHitKind.MenuItem || h.Kind == ListHitKind.Delete) ? h.Region : -1;
             if (region == hoveredRegion) return;
             hoveredRegion = region;
             if (RegionHovered != null) RegionHovered(this, region >= 0 ? regions[region] : null);
@@ -622,22 +678,33 @@ namespace Wakudori
             base.OnMouseDown(e);
             // 一覧の上の操作は, 枠の操作より優先する.
             ListHit lh = HitList(e.Location);
-            if (e.Button == MouseButtons.Right)
+            if (e.Button != MouseButtons.Left) return;
+            if (lh.Kind == ListHitKind.Delete)
             {
-                // 右クリック: 名前を変える, 削除(A5を変更)
-                if ((lh.Kind == ListHitKind.Chip || lh.Kind == ListHitKind.MenuItem) && RegionMenuRequested != null)
-                {
-                    RegionMenuRequested(this, regions[lh.Region]);
-                }
+                // ×: その範囲を削除する(確認してから)
+                if (RegionDeleteRequested != null) RegionDeleteRequested(this, regions[lh.Region]);
                 return;
             }
-            if (e.Button != MouseButtons.Left) return;
             if (lh.Kind == ListHitKind.Chip || lh.Kind == ListHitKind.MenuItem)
             {
+                SavedRegion region = regions[lh.Region];
+                if (e.Clicks >= 2)
+                {
+                    // ダブルクリック: その場で名前を変える
+                    bool pill;
+                    Rectangle rc = ItemRect(lh.Region, out pill);
+                    if (!rc.IsEmpty && RegionEditRequested != null)
+                    {
+                        rc.Offset(bounds.Location);
+                        RegionEditRequested(this, region, rc);
+                    }
+                    return;
+                }
                 // 名前を押したら, その範囲に決める(A4). 下見で動いていた枠がそのまま残る.
-                menuOpen = false;
+                // 縦の一覧は開いたままにする(続けてダブルクリックで名前を変えられるように). 閉じるのは外のクリックかEsc.
+                if (lh.Kind == ListHitKind.Chip) menuOpen = false;
                 hoveredRegion = -1;
-                if (RegionChosen != null) RegionChosen(this, regions[lh.Region]);
+                if (RegionChosen != null) RegionChosen(this, region);
                 Present();
                 return;
             }

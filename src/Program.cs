@@ -89,7 +89,7 @@ namespace Wakudori
         private bool previewing;
         private Rectangle frameBeforePreview;
         private string nameBeforePreview;
-        private ContextMenuStrip regionMenu;
+        private InlineNameEditor editor; // 名前を変えている最中の入力欄
 
         public event EventHandler Finished;
 
@@ -126,7 +126,8 @@ namespace Wakudori
                 f.SaveRequested += OnSaveRequested;
                 f.RegionChosen += OnRegionChosen;
                 f.RegionHovered += OnRegionHovered;
-                f.RegionMenuRequested += OnRegionMenuRequested;
+                f.RegionEditRequested += OnRegionEditRequested;
+                f.RegionDeleteRequested += OnRegionDeleteRequested;
                 f.PreviewCancelRequested += delegate { EndPreview(); };
                 forms.Add(f);
             }
@@ -199,51 +200,58 @@ namespace Wakudori
             selection.SetNamedFrame(frameBeforePreview, nameBeforePreview);
         }
 
-        // 一覧の名前を右クリック: 名前を変える, 削除(A5を変更. regions.jsonの手での編集もこれまでどおりできる).
-        private void OnRegionMenuRequested(object sender, SavedRegion region)
+        // 一覧の名前をダブルクリック: その場で名前を変える(A5を変更. regions.jsonの手での編集もこれまでどおりできる).
+        private void OnRegionEditRequested(object sender, SavedRegion region, Rectangle screenRect)
         {
             if (capturing || closed) return;
             EndPreview();
-            if (regionMenu == null)
+            if (!CheckCanSave()) return;
+            if (editor != null) editor.Close();
+            OverlayForm owner = (OverlayForm)sender;
+            InlineNameEditor ed = new InlineNameEditor(screenRect, region.Name, owner.DpiScale,
+                delegate(string text) { return ApplyRename(region, text); });
+            ed.FormClosed += delegate
             {
-                regionMenu = new ContextMenuStrip();
-                ToolStripProfessionalRenderer renderer = new ToolStripProfessionalRenderer(new Theme.MenuColors());
-                renderer.RoundedEdges = false;
-                regionMenu.Renderer = renderer;
-                regionMenu.BackColor = Theme.Bg;
-                regionMenu.ForeColor = Theme.Text;
-            }
-            regionMenu.Items.Clear();
-            Form owner = (Form)sender;
-            regionMenu.Items.Add(new ToolStripMenuItem("名前を変える", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { RenameRegion(owner, region); }); }));
-            regionMenu.Items.Add(new ToolStripMenuItem("削除", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { DeleteRegion(owner, region); }); }));
-            regionMenu.Show(Cursor.Position);
+                if (editor == ed) editor = null; // 閉じた画面は自動で破棄される
+                if (!closed) owner.Activate();
+            };
+            editor = ed;
+            ed.Show(owner);
         }
 
-        private void RenameRegion(Form owner, SavedRegion region)
+        // 名前を変える. 成功ならnull, だめならその理由
+        private string ApplyRename(SavedRegion region, string text)
         {
-            if (capturing || closed || !store.Regions.Contains(region)) return;
-            if (!CheckCanSave()) return;
-            List<string> others = new List<string>();
-            foreach (SavedRegion r in store.Regions) if (r != region) others.Add(r.Name);
-            string newName;
-            using (NameForm form = new NameForm(others, region.Name, true))
+            string name = (text ?? "").Trim();
+            if (name.Length == 0) return "名前を入力してください.";
+            if (name == region.Name || !store.Regions.Contains(region)) return null;
+            foreach (SavedRegion r in store.Regions)
             {
-                if (form.ShowDialog(owner) != DialogResult.OK) { owner.Activate(); return; }
-                newName = form.ResultName;
+                if (r != region && r.Name == name) return "「" + name + "」はほかの範囲で使っています.";
             }
             string oldName = region.Name;
-            region.Name = newName;
-            if (!TrySaveStore())
+            region.Name = name;
+            try
+            {
+                store.Save(RegionStore.DefaultPath);
+            }
+            catch (Exception ex)
             {
                 region.Name = oldName;
+                return "保存できませんでした: " + ex.Message;
             }
-            else if (selection.RegionName == oldName)
-            {
-                selection.NameCurrent(newName); // 呼び出し中の範囲なら, 撮ったときのファイル名も新しい名前にする
-            }
+            if (selection.RegionName == oldName) selection.NameCurrent(name); // 呼び出し中なら, 撮ったときのファイル名も新しい名前に
             foreach (OverlayForm f in forms) f.RefreshRegions();
-            owner.Activate();
+            return null;
+        }
+
+        // 一覧の名前の右上の×: 確認してから削除する.
+        private void OnRegionDeleteRequested(object sender, SavedRegion region)
+        {
+            if (capturing || closed) return;
+            EndPreview();
+            Form owner = (Form)sender;
+            owner.BeginInvoke((MethodInvoker)delegate { DeleteRegion(owner, region); });
         }
 
         private void DeleteRegion(Form owner, SavedRegion region)
@@ -401,10 +409,10 @@ namespace Wakudori
                 f.Dispose();
             }
             forms.Clear();
-            if (regionMenu != null)
+            if (editor != null)
             {
-                regionMenu.Dispose();
-                regionMenu = null;
+                editor.Close();
+                editor = null;
             }
             EventHandler h = Finished;
             if (h != null) h(this, EventArgs.Empty);
