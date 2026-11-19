@@ -15,19 +15,19 @@ namespace Wakudori
     {
         private const int DimAlpha = 140;   // 範囲の外の暗さ(0〜255)
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
-        private const int HandleSize96 = 10; // 丸の直径(96 DPIのとき)
         private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
-        private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
-        private const float FadedOpacity = 0.2f; // 辺・角を目立たせるとき, ほかの辺と丸をこの濃さにする
+        // つまみ(選んだ辺・カーソルを乗せた辺の外側に出す太い線. 角はL字). 96 DPIのときの大きさ
+        private const int KnobThick96 = 4;  // 太さ
+        private const int KnobLength96 = 32; // 辺のつまみの長さ(短い辺では辺の40%まで)
+        private const int KnobCorner96 = 18; // 角のL字の1本の長さ
+        private const int KnobGap96 = 2;    // 線とつまみのすき間
+        private const int KnobHoverAlpha = 115; // カーソルを乗せただけのときのつまみの濃さ(選んだときは255)
 
-        // 色はanthropic-htmlのライトテーマに合わせる(B12). 黒は暖色の黒(#141413).
-        private static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13);       // 範囲の外
-        // 線は, 明るい画面でも暗い画面でも見えるよう, 白地に黒の破線の2色にする
-        private static readonly Color BorderBackColor = Color.FromArgb(230, 0xFF, 0xFF, 0xFF);    // 線の地(白)
-        private static readonly Color BorderLineColor = Color.FromArgb(255, 0x14, 0x14, 0x13);   // 破線, 選んだ辺の実線
-        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xFF, 0xFF, 0xFF);   // 丸の中
-        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x3D, 0x3D, 0x3A); // 丸のふち
-        private const float HandleBorder96 = 1.5f; // 丸のふちの太さ(96 DPIのとき)
+        // 色はanthropic-htmlのライトテーマに合わせる(B12). 黒は暖色の黒(#141413), 線はアイボリー(#FAF9F5).
+        private static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13); // 範囲の外
+        // 線は範囲のすぐ外側(必ず暗くした側)に引くので, 明るい色の実線ならどんな画面の上でも見える.
+        private static readonly Color LineColor = Color.FromArgb(242, 0xFA, 0xF9, 0xF5);
+        private static readonly Color KnobColor = Color.FromArgb(255, 0xFA, 0xF9, 0xF5);
 
         private enum DragMode { None, Move, FrameHandle }
 
@@ -179,7 +179,7 @@ namespace Wakudori
                     }
 
                     DrawBorder(g, local);
-                    DrawHandles(g, local);
+                    DrawKnobs(g, local);
                 }
 
             }
@@ -191,94 +191,77 @@ namespace Wakudori
             get { return Scaled(1); }
         }
 
-        // 線の中心線(ローカル座標, 小数). 丸の中心をここにそろえる.
-        // 線は範囲のすぐ外側の太さw画素に描く(撮るときは選択画面を消すので, 線も丸も画像には入らない).
-        // GDI+(PixelOffsetMode.None)では画素の中心が整数座標なので,
-        // 範囲の左端の画素がlocal.Xのとき, 外側w画素の中心は local.X - 1 - (w - 1) / 2 になる.
-        private RectangleF BorderCenterLine(Rectangle local)
-        {
-            float c = 1f + (BorderWidth - 1) / 2f;
-            return new RectangleF(local.Left - c, local.Top - c,
-                (local.Right - 1 + c) - (local.Left - c), (local.Bottom - 1 + c) - (local.Top - c));
-        }
-
-        // 線は辺ごとに画素の帯として塗る. 目立たせる辺(選んだ辺, カーソルが乗っている辺)は見た目を一切変えず,
-        // ほかの辺を薄くする. 選んだ辺の画素が変わらないので, 動いたようには見えない.
+        // 線はアイボリーの細い実線で, 範囲のすぐ外側の太さw画素に塗る(撮るときは選択画面を消すので画像には入らない).
+        // 選んでも, カーソルを乗せても, 線の太さ・位置・色は変えない(変えると辺が動いたように見えるため).
         private void DrawBorder(Graphics g, Rectangle local)
         {
             int w = BorderWidth;
-            int dash = Scaled(Dash96);
-            FrameHandle sel = selection.HighlightHandle;
-            bool any = sel != FrameHandle.None;
             g.CompositingMode = CompositingMode.SourceOver;
-            // 上下の帯は角の画素を含み, 左右の帯は含まない(同じ画素を2回塗らないため).
-            DrawEdge(g, new Rectangle(local.Left - w, local.Top - w, local.Width + w * 2, w), true, any, any && MovesTop(sel), dash);
-            DrawEdge(g, new Rectangle(local.Left - w, local.Bottom, local.Width + w * 2, w), true, any, any && MovesBottom(sel), dash);
-            DrawEdge(g, new Rectangle(local.Left - w, local.Top, w, local.Height), false, any, any && MovesLeft(sel), dash);
-            DrawEdge(g, new Rectangle(local.Right, local.Top, w, local.Height), false, any, any && MovesRight(sel), dash);
+            using (SolidBrush line = new SolidBrush(LineColor))
+            {
+                // 上下の帯は角の画素を含み, 左右の帯は含まない(同じ画素を2回塗らないため).
+                g.FillRectangle(line, local.Left - w, local.Top - w, local.Width + w * 2, w);
+                g.FillRectangle(line, local.Left - w, local.Bottom, local.Width + w * 2, w);
+                g.FillRectangle(line, local.Left - w, local.Top, w, local.Height);
+                g.FillRectangle(line, local.Right, local.Top, w, local.Height);
+            }
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        private static void DrawEdge(Graphics g, Rectangle band, bool horizontal, bool anySelected, bool selected, int dash)
+        // 選んだ辺(角)と, カーソルを乗せた辺(角)の外側に, つまみを出す(B12, 写真アプリのトリミング風).
+        // 辺は中央に太い線, 角はL字. 選んだほうは濃く, 乗せただけのほうは半透明.
+        // 四隅の丸は出さない. つまみは線の外側にあるので, 撮る範囲の中身は隠さない.
+        private void DrawKnobs(Graphics g, Rectangle local)
         {
-            bool faded = anySelected && !selected;
-            using (SolidBrush back = new SolidBrush(Fade(BorderBackColor, faded)))
-            using (SolidBrush line = new SolidBrush(Fade(BorderLineColor, faded)))
-            {
-                g.FillRectangle(back, band);
-                int len = horizontal ? band.Width : band.Height;
-                for (int p = 0; p < len; p += dash * 2)
-                {
-                    int n = Math.Min(dash, len - p);
-                    if (horizontal) g.FillRectangle(line, band.X + p, band.Y, n, band.Height);
-                    else g.FillRectangle(line, band.X, band.Y + p, band.Width, n);
-                }
-            }
-        }
+            FrameHandle sel = selection.SelectedHandle;
+            FrameHandle hover = selection.HoverHandle;
+            if (sel == FrameHandle.None && hover == FrameHandle.None) return;
 
-        private static Color Fade(Color c, bool faded)
-        {
-            return faded ? Color.FromArgb((int)Math.Round(c.A * FadedOpacity), c) : c;
-        }
-
-        // 丸は四隅だけ(B9). 辺の中央の丸は端の文字や罫線を隠すのでやめた. 辺はどこでもつかめる.
-        // 中心は線の中心線の交点. 辺・角を目立たせるときは, その辺の上にない丸を薄くする.
-        private void DrawHandles(Graphics g, Rectangle local)
-        {
-            RectangleF line = BorderCenterLine(local);
-            float l = line.Left, r = line.Right, t = line.Top, b = line.Bottom;
-            PointF[] centers = new PointF[] { new PointF(l, t), new PointF(r, t), new PointF(r, b), new PointF(l, b) };
-            FrameHandle[] handles = new FrameHandle[] { FrameHandle.TopLeft, FrameHandle.TopRight, FrameHandle.BottomRight, FrameHandle.BottomLeft };
-
-            float d = Scaled(HandleSize96);
-            FrameHandle sel = selection.HighlightHandle;
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            for (int i = 0; i < centers.Length; i++)
-            {
-                bool faded = sel != FrameHandle.None && !OnSelectedEdge(handles[i], sel);
-                RectangleF rc = new RectangleF(centers[i].X - d / 2f, centers[i].Y - d / 2f, d, d);
-                using (SolidBrush fill = new SolidBrush(Fade(HandleFillColor, faded)))
-                using (Pen border = new Pen(Fade(HandleBorderColor, faded), HandleBorder96 * scale))
-                {
-                    g.FillEllipse(fill, rc);
-                    g.DrawEllipse(border, rc);
-                }
-            }
+            g.PixelOffsetMode = PixelOffsetMode.Half; // 塗りの四角を画素の境目にそろえる
+            if (hover != FrameHandle.None && hover != sel) DrawKnob(g, local, hover, Color.FromArgb(KnobHoverAlpha, KnobColor));
+            if (sel != FrameHandle.None) DrawKnob(g, local, sel, KnobColor);
+            g.PixelOffsetMode = PixelOffsetMode.None;
             g.SmoothingMode = SmoothingMode.None;
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // 丸hが, 選んだ辺(角なら2辺)の上にあるか
-        private static bool OnSelectedEdge(FrameHandle h, FrameHandle sel)
+        private void DrawKnob(Graphics g, Rectangle local, FrameHandle h, Color color)
         {
-            if (sel == FrameHandle.None) return false;
-            if (h == sel) return true;
-            bool selCorner = sel == FrameHandle.TopLeft || sel == FrameHandle.TopRight || sel == FrameHandle.BottomLeft || sel == FrameHandle.BottomRight;
-            if (selCorner) return false; // 角を選んだときは, その角の丸だけ
-            // 辺を選んだときは, その辺の両端の丸
-            return (MovesLeft(sel) && MovesLeft(h)) || (MovesRight(sel) && MovesRight(h))
-                || (MovesTop(sel) && MovesTop(h)) || (MovesBottom(sel) && MovesBottom(h));
+            int th = Scaled(KnobThick96);
+            int o = BorderWidth + Scaled(KnobGap96); // 範囲の端からつまみまでの距離
+            int l = local.Left, t = local.Top, r = local.Right, b = local.Bottom;
+            float radius = th / 2f;
+            using (SolidBrush brush = new SolidBrush(color))
+            {
+                if (h == FrameHandle.TopLeft || h == FrameHandle.TopRight || h == FrameHandle.BottomRight || h == FrameHandle.BottomLeft)
+                {
+                    int len = Scaled(KnobCorner96);
+                    int cx = MovesLeft(h) ? l - o - th : r + o;   // 縦の棒の左端
+                    int cy = MovesTop(h) ? t - o - th : b + o;    // 横の棒の上端
+                    int hx = MovesLeft(h) ? cx : cx + th - len;   // 横の棒の左端
+                    int vy = MovesTop(h) ? cy : cy + th - len;    // 縦の棒の上端
+                    FillRounded(g, brush, new RectangleF(hx, cy, len, th), radius);
+                    FillRounded(g, brush, new RectangleF(cx, vy, th, len), radius);
+                    return;
+                }
+                bool horizontal = h == FrameHandle.Top || h == FrameHandle.Bottom;
+                int edge = horizontal ? local.Width : local.Height;
+                int knob = Math.Max(th, Math.Min(Scaled(KnobLength96), (int)(edge * 0.4f)));
+                if (h == FrameHandle.Top) FillRounded(g, brush, new RectangleF(l + (local.Width - knob) / 2, t - o - th, knob, th), radius);
+                if (h == FrameHandle.Bottom) FillRounded(g, brush, new RectangleF(l + (local.Width - knob) / 2, b + o, knob, th), radius);
+                if (h == FrameHandle.Left) FillRounded(g, brush, new RectangleF(l - o - th, t + (local.Height - knob) / 2, th, knob), radius);
+                if (h == FrameHandle.Right) FillRounded(g, brush, new RectangleF(r + o, t + (local.Height - knob) / 2, th, knob), radius);
+            }
+        }
+
+        private static void FillRounded(Graphics g, Brush brush, RectangleF rc, float radius)
+        {
+            using (GraphicsPath path = Theme.RoundedRect(rc, radius))
+            {
+                g.FillPath(brush, path);
+            }
         }
 
         private void Present()
