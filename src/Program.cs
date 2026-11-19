@@ -1,15 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Threading;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace Wakudori
 {
-    // 今の段階(SPEC.mdの8章の2と3): 起動すると選択画面を開き, 枠を調整してEnterで撮る.
-    // 撮った画像はクリップボードとPNGファイルの両方に出し, 終了する. 常駐とホットキーは8章の4で作る.
+    // タスクトレイに常駐し, ホットキーで選択画面を開く(SPEC.mdの8章の4). 2つ目は起動しない.
     internal static class Program
     {
-        private static readonly Size DefaultFrameSize = new Size(800, 600);
+        private const string MutexName = "Local\\Wakudori.SingleInstance";
 
         [STAThread]
         private static int Main()
@@ -26,23 +27,34 @@ namespace Wakudori
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            string error;
-            AppSettings settings = AppSettings.Load(out error);
-            if (error != null)
+            bool createdNew;
+            using (Mutex mutex = new Mutex(true, MutexName, out createdNew))
             {
-                MessageBox.Show(error + "\r\n\r\n既定の設定で続けます.", "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+                if (!createdNew)
+                {
+                    MessageBox.Show("Wakudoriはすでに起動しています. タスクトレイのアイコンかホットキーから使ってください.",
+                        "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 0;
+                }
 
-            try
-            {
-                Application.Run(new CaptureSession(settings, DefaultFrameSize));
+                string error;
+                AppSettings settings = AppSettings.Load(out error);
+                if (error != null)
+                {
+                    MessageBox.Show(error + "\r\n\r\n既定の設定で続けます. このファイルは上書きしません.", "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+
+                try
+                {
+                    Application.Run(new TrayApp(settings));
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString(), "Wakudori - エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return 1;
+                }
+                return 0;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.ToString(), "Wakudori - エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return 1;
-            }
-            return 0;
         }
 
         public static uint GetMonitorDpi(Rectangle bounds)
@@ -63,19 +75,21 @@ namespace Wakudori
         }
     }
 
-    // 選択画面を1回開いて, 撮るか閉じるまでを受け持つ.
-    internal sealed class CaptureSession : ApplicationContext
+    // 選択画面を1回開いて, 撮るか閉じるまでを受け持つ. 閉じたらFinishedを出す.
+    internal sealed class CaptureSession
     {
-        private readonly AppSettings settings;
+        private readonly string saveDir;
         private readonly RegionStore store;
         private readonly List<OverlayForm> forms = new List<OverlayForm>();
         private readonly Selection selection;
         private bool capturing;
         private bool closed;
 
-        public CaptureSession(AppSettings settings, Size defaultFrameSize)
+        public event EventHandler Finished;
+
+        public CaptureSession(string saveDir, Size defaultFrameSize)
         {
-            this.settings = settings;
+            this.saveDir = saveDir;
 
             Screen[] screens = Screen.AllScreens;
             Rectangle[] monitors = new Rectangle[screens.Length];
@@ -105,16 +119,27 @@ namespace Wakudori
             }
 
             foreach (OverlayForm f in forms) f.Show();
-
-            // キーボードを受けるため, マウスカーソルがあるモニターのフォームを前面にする.
-            foreach (OverlayForm f in forms)
+            activeIndex = 0;
+            for (int i = 0; i < forms.Count; i++)
             {
-                if (f.MonitorBounds.Contains(cursor))
-                {
-                    f.Activate();
-                    break;
-                }
+                if (forms[i].MonitorBounds.Contains(cursor)) { activeIndex = i; break; }
             }
+            Activate();
+        }
+
+        private int activeIndex;
+
+        // キーボードを受けるため, 開いたときにマウスカーソルがあったモニターのフォームを前面にする.
+        public void Activate()
+        {
+            if (closed || capturing || forms.Count == 0) return;
+            forms[activeIndex].Activate();
+        }
+
+        // 撮らずに閉じる(終了するときなど).
+        public void Close()
+        {
+            CloseAll();
         }
 
         private void OnCancelRequested(object sender, EventArgs e)
@@ -159,7 +184,7 @@ namespace Wakudori
                 // D1: クリップボードとファイルの両方に出す. D4: 通知は出さない.
                 // 名前付きの範囲(8章の5)はまだないので, ファイル名はscreenshot_...になる(D2).
                 CaptureOutput.CopyToClipboard(bmp);
-                CaptureOutput.SavePng(bmp, settings.SaveDir, null, now);
+                CaptureOutput.SavePng(bmp, saveDir, null, now);
             }
             SaveLast(frame);
         }
@@ -190,7 +215,8 @@ namespace Wakudori
                 f.Dispose();
             }
             forms.Clear();
-            ExitThread();
+            EventHandler h = Finished;
+            if (h != null) h(this, EventArgs.Empty);
         }
     }
 }

@@ -11,6 +11,13 @@ namespace Wakudori
         public const int WS_EX_LAYERED = 0x00080000;
 
         public const int WM_DPICHANGED = 0x02E0;
+        public const int WM_HOTKEY = 0x0312;
+        public const int WM_KEYDOWN = 0x0100;
+        public const int WM_SYSKEYDOWN = 0x0104;
+
+        public const uint MOD_NOREPEAT = 0x4000;
+        public const int VK_LWIN = 0x5B;
+        public const int VK_RWIN = 0x5C;
 
         public const int ULW_ALPHA = 0x00000002;
         public const byte AC_SRC_OVER = 0x00;
@@ -107,6 +114,18 @@ namespace Wakudori
         [DllImport("gdi32.dll", SetLastError = true)]
         public static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi, uint usage,
             out IntPtr bits, IntPtr hSection, uint offset);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        [DllImport("user32.dll")]
+        public static extern short GetKeyState(int vk);
+
+        [DllImport("user32.dll")]
+        public static extern bool DestroyIcon(IntPtr hIcon);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize,

@@ -20,7 +20,7 @@ namespace Wakudori
         private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
 
         // 選んだ辺の色. Anthropicのクレイ色
-        private static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
+        internal static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
         // 線の色. 明るい画面でも暗い画面でも見えるよう, 白地に黒の破線の2色にする
         private static readonly Color BorderBackColor = Color.FromArgb(230, 255, 255, 255);     // 破線の地(白)
         private static readonly Color BorderDashColor = Color.FromArgb(255, 0x20, 0x20, 0x20);  // 破線(黒)
