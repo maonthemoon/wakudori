@@ -137,6 +137,20 @@ internal static class Program
             Rectangle thin = new Rectangle(100, 100, 6, 200); // l=100 r=106
             Check(Selection.HitTest(thin, new Point(105, 200), 5) == FrameHandle.Right, "HitTest thin frame picks nearer side");
         }
+        {
+            Selection h = new Selection(new Rectangle[] { new Rectangle(0, 0, 1000, 800) }, new Rectangle(100, 100, 200, 100));
+            int changes = 0;
+            h.Changed += delegate { changes++; };
+            Check(h.HighlightHandle == FrameHandle.None, "Highlight none");
+            h.SelectedHandle = FrameHandle.Left;
+            Check(h.HighlightHandle == FrameHandle.Left, "Highlight = selected");
+            h.HoverHandle = FrameHandle.Top;
+            Check(h.HighlightHandle == FrameHandle.Top, "Highlight = hover over selected");
+            h.HoverHandle = FrameHandle.Top;
+            Check(changes == 2, "Hover same value no Changed");
+            h.HoverHandle = FrameHandle.None;
+            Check(h.HighlightHandle == FrameHandle.Left && changes == 3, "Hover cleared back to selected");
+        }
         Rectangle fr = new Rectangle(100, 100, 200, 100);
         Rectangle[] hr = Selection.HandleRects(fr, 10);
         Check(hr.Length == 8, "HandleRects count");

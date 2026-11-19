@@ -14,6 +14,7 @@ namespace Wakudori
         private readonly Rectangle[] monitors;
         private Rectangle frame;
         private FrameHandle selectedHandle;
+        private FrameHandle hoverHandle;
 
         public event EventHandler Changed;
 
@@ -34,6 +35,25 @@ namespace Wakudori
                 selectedHandle = value;
                 RaiseChanged();
             }
+        }
+
+        // マウスカーソルが乗っている辺・角(つかむ場所の予告). ないときはNone
+        public FrameHandle HoverHandle
+        {
+            get { return hoverHandle; }
+            set
+            {
+                if (hoverHandle == value) return;
+                hoverHandle = value;
+                RaiseChanged();
+            }
+        }
+
+        // 目立たせて表示する辺・角. カーソルが乗っていればそれ, なければ選んだ辺・角.
+        // 矢印キーで動くのはいつもSelectedHandle(矢印キーを押したらHoverHandleを消して表示を合わせる).
+        public FrameHandle HighlightHandle
+        {
+            get { return hoverHandle != FrameHandle.None ? hoverHandle : selectedHandle; }
         }
 
         // 枠の中心があるモニター(なければ最も近いモニター)

@@ -110,8 +110,7 @@ namespace Wakudori
 
             for (int i = 0; i < screens.Length; i++)
             {
-                bool cursorHere = monitors[i].Contains(cursor);
-                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, cursorHere);
+                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection);
                 f.CaptureRequested += OnCaptureRequested;
                 f.CancelRequested += OnCancelRequested;
                 forms.Add(f);

@@ -13,12 +13,12 @@ namespace Wakudori
     // 描画はUpdateLayeredWindow(ピクセル単位のアルファ)で行い, 下の画面は動いたまま見える.
     internal sealed class OverlayForm : Form
     {
-        private const int DimAlpha = 110;   // 範囲の外の暗さ
+        private const int DimAlpha = 140;   // 範囲の外の暗さ(0〜255)
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
         private const int HandleSize96 = 10; // 丸の直径(96 DPIのとき)
         private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
         private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
-        private const float FadedOpacity = 0.35f; // 辺・角を選んだとき, ほかの辺と丸をこの濃さにする
+        private const float FadedOpacity = 0.2f; // 辺・角を目立たせるとき, ほかの辺と丸をこの濃さにする
 
         // 色はanthropic-htmlのライトテーマに合わせる(B12). 黒は暖色の黒(#141413).
         private static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13);       // 範囲の外
@@ -36,7 +36,6 @@ namespace Wakudori
         private readonly uint dpi;
         private readonly float scale;
         private readonly Selection selection;
-        private readonly bool showHelp;
 
         private bool frameWasVisible;       // 前回の描画で枠がこのモニターにあったか
         private DragMode dragMode = DragMode.None;
@@ -48,21 +47,19 @@ namespace Wakudori
         private IntPtr hBitmap = IntPtr.Zero;
         private IntPtr oldBitmap = IntPtr.Zero;
         private Bitmap surface;             // hBitmapのピクセルを直接指すBitmap(PArgb)
-        private Bitmap helpCard;            // 操作説明のカード. 変わらないので1回だけ描く
 
         public bool AllowClose;             // trueのときだけ閉じられる(Alt+F4で1枚だけ閉じないように)
 
         public event EventHandler CaptureRequested;
         public event EventHandler CancelRequested;
 
-        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, bool showHelp)
+        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection)
         {
             this.monitorIndex = monitorIndex;
             this.bounds = bounds;
             this.dpi = dpi;
             this.scale = dpi / 96f;
             this.selection = selection;
-            this.showHelp = showHelp;
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -185,7 +182,6 @@ namespace Wakudori
                     DrawHandles(g, local);
                 }
 
-                if (showHelp) DrawHelp(g);
             }
         }
 
@@ -206,13 +202,13 @@ namespace Wakudori
                 (local.Right - 1 + c) - (local.Left - c), (local.Bottom - 1 + c) - (local.Top - c));
         }
 
-        // 線は辺ごとに画素の帯として塗る. 選んだ辺も太さと位置は変えず, 実線にするだけ(ずれて見えないように).
-        // 辺・角を選んでいるときは, ほかの辺を薄くして, 選んだ辺を目立たせる.
+        // 線は辺ごとに画素の帯として塗る. 目立たせる辺(選んだ辺, カーソルが乗っている辺)は見た目を一切変えず,
+        // ほかの辺を薄くする. 選んだ辺の画素が変わらないので, 動いたようには見えない.
         private void DrawBorder(Graphics g, Rectangle local)
         {
             int w = BorderWidth;
             int dash = Scaled(Dash96);
-            FrameHandle sel = selection.SelectedHandle;
+            FrameHandle sel = selection.HighlightHandle;
             bool any = sel != FrameHandle.None;
             g.CompositingMode = CompositingMode.SourceOver;
             // 上下の帯は角の画素を含み, 左右の帯は含まない(同じ画素を2回塗らないため).
@@ -229,11 +225,6 @@ namespace Wakudori
             using (SolidBrush back = new SolidBrush(Fade(BorderBackColor, faded)))
             using (SolidBrush line = new SolidBrush(Fade(BorderLineColor, faded)))
             {
-                if (selected)
-                {
-                    g.FillRectangle(line, band);
-                    return;
-                }
                 g.FillRectangle(back, band);
                 int len = horizontal ? band.Width : band.Height;
                 for (int p = 0; p < len; p += dash * 2)
@@ -251,7 +242,7 @@ namespace Wakudori
         }
 
         // 丸は四隅だけ(B9). 辺の中央の丸は端の文字や罫線を隠すのでやめた. 辺はどこでもつかめる.
-        // 中心は線の中心線の交点. 辺・角を選んでいるときは, 選んだ辺の上にない丸を薄くする.
+        // 中心は線の中心線の交点. 辺・角を目立たせるときは, その辺の上にない丸を薄くする.
         private void DrawHandles(Graphics g, Rectangle local)
         {
             RectangleF line = BorderCenterLine(local);
@@ -260,7 +251,7 @@ namespace Wakudori
             FrameHandle[] handles = new FrameHandle[] { FrameHandle.TopLeft, FrameHandle.TopRight, FrameHandle.BottomRight, FrameHandle.BottomLeft };
 
             float d = Scaled(HandleSize96);
-            FrameHandle sel = selection.SelectedHandle;
+            FrameHandle sel = selection.HighlightHandle;
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             for (int i = 0; i < centers.Length; i++)
@@ -288,18 +279,6 @@ namespace Wakudori
             // 辺を選んだときは, その辺の両端の丸
             return (MovesLeft(sel) && MovesLeft(h)) || (MovesRight(sel) && MovesRight(h))
                 || (MovesTop(sel) && MovesTop(h)) || (MovesBottom(sel) && MovesBottom(h));
-        }
-
-        // 操作説明はアイボリーのカードにし, キーはキーボードのキーの形で示す(B12).
-        // A7で上部に範囲の一覧を出すので, 下部の中央に出す.
-        private void DrawHelp(Graphics g)
-        {
-            if (helpCard == null) helpCard = HelpCard.Create(scale);
-            g.CompositingMode = CompositingMode.SourceOver;
-            int x = (bounds.Width - helpCard.Width) / 2;
-            int y = bounds.Height - helpCard.Height - Scaled(40);
-            g.DrawImage(helpCard, new Rectangle(x, y, helpCard.Width, helpCard.Height));
-            g.CompositingMode = CompositingMode.SourceCopy;
         }
 
         private void Present()
@@ -414,10 +393,17 @@ namespace Wakudori
             }
         }
 
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (dragMode == DragMode.None) selection.HoverHandle = FrameHandle.None;
+        }
+
         private void UpdateCursor(Point p)
         {
             Rectangle frame = selection.Frame;
             FrameHandle hit = Selection.HitTest(frame, p, Scaled(Grip96));
+            selection.HoverHandle = hit; // つかむ場所の予告
             Cursor c;
             switch (hit)
             {
@@ -475,6 +461,8 @@ namespace Wakudori
         private void Nudge(int dx, int dy)
         {
             if (dragMode != DragMode.None) return; // ドラッグ中は矢印キーを無視する
+            // 動く辺を必ず見せる. カーソルの辺の予告は, マウスを動かすまで消す.
+            selection.HoverHandle = FrameHandle.None;
             if (selection.SelectedHandle != FrameHandle.None)
             {
                 selection.MoveEdges(selection.SelectedHandle, dx, dy);
@@ -503,11 +491,6 @@ namespace Wakudori
             if (disposing)
             {
                 selection.Changed -= OnSelectionChanged;
-                if (helpCard != null)
-                {
-                    helpCard.Dispose();
-                    helpCard = null;
-                }
                 if (surface != null)
                 {
                     surface.Dispose();
