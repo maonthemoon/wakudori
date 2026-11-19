@@ -15,16 +15,18 @@ namespace Wakudori
     {
         private const int DimAlpha = 110;   // 範囲の外の暗さ
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
-        private const int HandleSize96 = 9; // ハンドル(丸)の直径(96 DPIのとき)
+        private const int HandleSize96 = 10; // ハンドル(丸)の直径(96 DPIのとき)
         private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
         private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
 
         // 選んだ辺の色. Anthropicのクレイ色
         private static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
-        // Mac風の色. 白だと明るい画面で見にくいので, 少しグレーにする
-        private static readonly Color BorderColor = Color.FromArgb(255, 0xA6, 0xA6, 0xA6);      // 破線
-        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xF0, 0xF0, 0xF0);  // 丸の中
-        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x8A, 0x8A, 0x8A); // 丸のふち
+        // 線の色. 明るい画面でも暗い画面でも見えるよう, 白地に黒の破線の2色にする
+        private static readonly Color BorderBackColor = Color.FromArgb(230, 255, 255, 255);     // 破線の地(白)
+        private static readonly Color BorderDashColor = Color.FromArgb(255, 0x20, 0x20, 0x20);  // 破線(黒)
+        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xF5, 0xF5, 0xF5);  // 丸の中
+        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x50, 0x50, 0x50); // 丸のふち
+        private const float HandleBorder96 = 1.5f; // 丸のふちの太さ(96 DPIのとき)
 
         private enum DragMode { None, Move, FrameHandle }
 
@@ -185,32 +187,44 @@ namespace Wakudori
             }
         }
 
-        // 枠の線の位置(ローカル座標). 線は範囲のすぐ外側の1pxに描く.
-        // 撮るときは選択画面を消すので, 線も丸も画像には入らない.
-        // DrawRectangleは右端・下端の線を X+Width, Y+Height の画素に描くので,
-        // 4辺の線の画素は Left, Right, Top, Bottom そのものになる. 丸の中心もここにそろえる.
-        private static Rectangle BorderLine(Rectangle local)
+        // 線の太さ. DPIに合わせて太くする(100%で1px, 150%で2px)
+        private int BorderWidth
         {
-            return new Rectangle(local.X - 1, local.Y - 1, local.Width + 1, local.Height + 1);
+            get { return Scaled(1); }
         }
 
-        // Macのように, 少しグレーの破線で描く(白だと明るい画面で見にくい).
+        // 線の中心線(ローカル座標, 小数). 線は範囲のすぐ外側に描き, 太くするときは外側へ広げる.
+        // 撮るときは選択画面を消すので, 線も丸も画像には入らない.
+        // GDI+(PixelOffsetMode.None)では画素の中心が整数座標なので,
+        // 範囲の左端の画素がlocal.Xのとき, 1px外側の画素の中心はlocal.X - 1.
+        // 太さwの線を外側のw画素に収めると, 中心線は local.X - 1 - (w - 1) / 2 になる.
+        private RectangleF BorderCenterLine(Rectangle local)
+        {
+            float c = 1f + (BorderWidth - 1) / 2f;
+            return new RectangleF(local.Left - c, local.Top - c,
+                (local.Right - 1 + c) - (local.Left - c), (local.Bottom - 1 + c) - (local.Top - c));
+        }
+
         private void DrawBorder(Graphics g, Rectangle local)
         {
-            Rectangle line = BorderLine(local);
-            float dash = Scaled(Dash96);
+            RectangleF line = BorderCenterLine(local);
+            float w = BorderWidth;
             g.CompositingMode = CompositingMode.SourceOver;
-            using (Pen pen = new Pen(BorderColor, 1f))
+            using (Pen back = new Pen(BorderBackColor, w))
+            using (Pen dash = new Pen(BorderDashColor, w))
             {
-                pen.DashPattern = new float[] { dash, dash };
-                g.DrawRectangle(pen, line);
+                // DashPatternは線の太さを単位にするので, 太さで割って画素の長さをそろえる
+                float len = Scaled(Dash96) / w;
+                dash.DashPattern = new float[] { len, len };
+                g.DrawRectangle(back, line.X, line.Y, line.Width, line.Height);
+                g.DrawRectangle(dash, line.X, line.Y, line.Width, line.Height);
             }
 
-            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺. 線の中心は破線と同じ.
+            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺. 中心線は破線と同じ.
             FrameHandle h = selection.SelectedHandle;
             if (h != FrameHandle.None)
             {
-                using (Pen accent = new Pen(AccentColor, Scaled(2)))
+                using (Pen accent = new Pen(AccentColor, Math.Max(w + 1, Scaled(2))))
                 {
                     if (MovesLeft(h)) g.DrawLine(accent, line.Left, line.Top, line.Left, line.Bottom);
                     if (MovesRight(h)) g.DrawLine(accent, line.Right, line.Top, line.Right, line.Bottom);
@@ -221,11 +235,11 @@ namespace Wakudori
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // ハンドルはMacのように明るいグレーの小さな丸. 中心は辺の線の上(四隅は線の交点).
+        // ハンドルはMacのように明るいグレーの小さな丸. 中心は線の中心線の上(四隅は線の交点).
         // 選んだ辺の上の丸はクレイ色にする.
         private void DrawHandles(Graphics g, Rectangle local)
         {
-            Rectangle line = BorderLine(local);
+            RectangleF line = BorderCenterLine(local);
             float l = line.Left, r = line.Right, t = line.Top, b = line.Bottom;
             float cx = (l + r) / 2f, cy = (t + b) / 2f;
             // FrameHandleの順(TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left)
@@ -241,7 +255,7 @@ namespace Wakudori
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using (SolidBrush normal = new SolidBrush(HandleFillColor))
             using (SolidBrush accent = new SolidBrush(AccentColor))
-            using (Pen border = new Pen(HandleBorderColor, Math.Max(1f, scale)))
+            using (Pen border = new Pen(HandleBorderColor, HandleBorder96 * scale))
             {
                 for (int i = 0; i < centers.Length; i++)
                 {
