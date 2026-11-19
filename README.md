@@ -24,6 +24,18 @@ Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要�
 3. ホットキーの登録画面が出たら, 使うキー(例: `Ctrl+Shift+S`)を押して「登録」を押します. Wakudoriはタスクトレイに常駐します.
 4. ホットキーを押すと選択画面が開きます. 枠を合わせて`Enter`で撮ります.
 
+### gitを使う場合
+
+cloneして, リポジトリの直下にある`Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告も出ません.
+
+```sh
+git clone https://github.com/maonthemoon/wakudori.git
+```
+
+新しい版にするときは, トレイのメニューで「終了」してから`git pull`し, もう一度起動します(起動している間はexeを上書きできないため).
+
+### 自動起動とマニュアル
+
 初めて起動したときに「PCの起動時に起動しますか」と聞かれます. あとからでも, トレイのメニューの「PC起動時に起動」で切り替えられます.
 
 詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/)にあります(ZIPの`manual\index.html`, トレイのメニューの「マニュアル」からも開けます).
@@ -86,7 +98,7 @@ C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
 配る用のZIPは`powershell -ExecutionPolicy Bypass -File tools\package.ps1`で`dist\`に作ります. バージョンは`src/AssemblyInfo.cs`で決めます.
 
-`v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます(`.github/workflows/build.yml`).
+`v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます. あわせて, リポジトリ直下の`Wakudori.exe`をそのexeに差し替えて`main`にcommitします(`.github/workflows/build.yml`). `Wakudori.exe`は手で更新しません.
 
 ### テスト
 

@@ -972,8 +972,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
       <article class="prose">
         <figure>
-          <img src="images/overview.png" width="880" height="576" alt="選択画面のイメージ. 画面の上に保存した範囲の名前が並び, 選んだ「売上グラフ」の範囲だけが明るく見えている">
-          <figcaption>選択画面のイメージ(架空の画面に, Wakudoriの選択画面を描いたもの)</figcaption>
+          <img src="images/demo.gif" width="880" height="576" alt="使い方のイメージ(動き). ホットキーで選択画面を開き, 辺をドラッグして大きさを調整し, 保存した「売上グラフ」に乗せて下見してから呼び出し, Enterで撮る">
+          <figcaption>使い方のイメージ(架空の画面に, Wakudoriの選択画面を描いたもの)</figcaption>
         </figure>
 
         <h2 id="about">Wakudoriとは</h2>
@@ -992,6 +992,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
           <li class="card card--subtle"><span class="card__title">展開</span><span class="card__body">好きな場所(例: <code>ドキュメント\Wakudori</code>)に展開します.</span></li>
           <li class="card card--subtle"><span class="card__title">起動</span><span class="card__body"><code>Wakudori.exe</code>をダブルクリックします.</span></li>
         </ol>
+        <p><strong>gitを使う場合</strong>: cloneして, リポジトリの直下にある<code>Wakudori.exe</code>を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, 下の「WindowsによってPCが保護されました」も出ません.</p>
+        <pre><code>git clone https://github.com/maonthemoon/wakudori.git</code></pre>
+        <p>新しい版にするときは, タスクトレイのメニューで「終了」してから<code>git pull</code>し, もう一度<code>Wakudori.exe</code>を起動します. 起動している間はexeを上書きできないので, <code>git pull</code>が失敗します.</p>
         <p>動作環境はWindows 11(Windows 10 22H2でも動作を確認)と, .NET Framework 4.8です. .NET Framework 4.8はWindowsに標準で入っているので, 追加のインストールは要りません.</p>
 
         <h3 id="smartscreen">初めて起動するとき</h3>

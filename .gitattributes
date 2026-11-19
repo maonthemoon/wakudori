@@ -4,3 +4,4 @@
 *.png binary
 *.ico binary
 *.ps1 text eol=crlf
+*.exe binary
