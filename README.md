@@ -10,10 +10,11 @@ Windows 11向けの, 範囲を保存して使い回せるスクリーンショ�
 
 - SDKのインストールは不要. Windows標準の`csc.exe`(.NET Framework 4.8)でビルドする.
 - 署名していないので, 初回の起動でSmartScreenの警告が出ることがある.
+- アイコンを変えるときは, `tools/make_icon.py`を直して`uv run tools/make_icon.py`で`app.ico`を作り直す(タスクトレイ用の`src/Theme.cs`の`CreateAppIconHandle`も同じ絵に直す).
 
 ## 今できること(開発中)
 
-`bin\Wakudori.exe`を起動すると, タスクトレイに常駐する(クレイ色の四角のアイコン).
+`bin\Wakudori.exe`を起動すると, タスクトレイに常駐する(クレイ色の四角に枠とつまみのアイコン).
 
 - 初めて起動したときは, ホットキーの登録画面が出る. 使うキー(例: `Ctrl+Shift+S`)を押して, `Enter`か「登録」で登録する.
   - 単独のキー(と`Shift`+キー)は, `F1`〜`F24`, `PrintScreen`, `Pause`, `ScrollLock`だけ使える. ほかのキーは`Ctrl`, `Alt`, `Win`と組み合わせる(文字の入力を邪魔しないため).

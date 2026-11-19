@@ -20,9 +20,9 @@ namespace Wakudori
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
         private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
         // つまみ(選んだ辺・カーソルを乗せた辺の外側に出す太い線. 角はL字). 96 DPIのときの大きさ
-        private const int KnobThick96 = 4;  // 太さ
-        private const int KnobLength96 = 32; // 辺のつまみの長さ(短い辺では辺の40%まで)
-        private const int KnobCorner96 = 18; // 角のL字の1本の長さ
+        private const int KnobThick96 = 6;  // 太さ
+        private const int KnobLength96 = 64; // 辺のつまみの長さ(短い辺では辺の40%まで)
+        private const int KnobCorner96 = 30; // 角のL字の1本の長さ
         private const int KnobGap96 = 2;    // 線とつまみのすき間
         private const int KnobHoverAlpha = 115; // カーソルを乗せただけのときのつまみの濃さ(選んだときは255)
 

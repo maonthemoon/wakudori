@@ -131,38 +131,39 @@ namespace Wakudori
             return p;
         }
 
-        // アプリのアイコン: クレイ色の角丸の四角に, 白い枠と四隅の丸. 明るいタスクバーでも暗いタスクバーでも見える.
+        // アプリのアイコン(案G「枠とつまみ」): クレイ色の角丸の四角に, アイボリーの細い枠と右の辺の太いつまみ.
+        // 座標は64×64の格子. exeのアイコン(app.ico)はtools/make_icon.pyで同じ絵を描いている. 変えるときは両方直す.
         // 返すハンドルは, 使い終わったらDestroyIconで消す.
         public static IntPtr CreateAppIconHandle(int size)
         {
             if (size < 16) size = 16;
+            float k = size / 64f;
             using (Bitmap bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb))
             {
                 using (Graphics g = Graphics.FromImage(bmp))
                 {
                     g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.PixelOffsetMode = PixelOffsetMode.Half;
                     g.Clear(Color.Transparent);
-                    using (GraphicsPath bg = RoundedRect(new RectangleF(0, 0, size - 1, size - 1), size * 0.22f))
+                    using (GraphicsPath bg = RoundedRect(new RectangleF(2 * k, 2 * k, 60 * k, 60 * k), 14 * k))
                     using (SolidBrush clay = new SolidBrush(Accent))
                     {
                         g.FillPath(clay, bg);
                     }
-
-                    float inset = size * 0.27f;
-                    RectangleF frame = new RectangleF(inset, inset, size - 1 - inset * 2, size - 1 - inset * 2);
-                    using (Pen pen = new Pen(Color.White, Math.Max(1f, size / 16f)))
+                    // 細い枠. 小さいアイコンでも1px未満にしない
+                    float fw = Math.Max(1f, 3 * k);
+                    using (GraphicsPath frame = RoundedRect(new RectangleF(14 * k + fw / 2, 16 * k + fw / 2, 32 * k - fw, 32 * k - fw), 2 * k))
+                    using (Pen pen = new Pen(Bg, fw))
                     {
-                        g.DrawRectangle(pen, frame.X, frame.Y, frame.Width, frame.Height);
+                        g.DrawPath(pen, frame);
                     }
-                    float d = Math.Max(3f, size * 0.2f);
-                    using (SolidBrush white = new SolidBrush(Color.White))
+                    // 右の辺のつまみ. 小さいアイコンでも2px未満にしない
+                    float kw = Math.Max(2f, 6 * k);
+                    using (Pen knob = new Pen(Bg, kw))
                     {
-                        PointF[] corners =
-                        {
-                            new PointF(frame.Left, frame.Top), new PointF(frame.Right, frame.Top),
-                            new PointF(frame.Left, frame.Bottom), new PointF(frame.Right, frame.Bottom)
-                        };
-                        foreach (PointF c in corners) g.FillEllipse(white, c.X - d / 2, c.Y - d / 2, d, d);
+                        knob.StartCap = LineCap.Round;
+                        knob.EndCap = LineCap.Round;
+                        g.DrawLine(knob, 53 * k, 25 * k, 53 * k, 39 * k);
                     }
                 }
                 return bmp.GetHicon();
