@@ -15,33 +15,36 @@ namespace Wakudori
         private readonly Func<string, string> apply;     // 名前を変える. 成功ならnull, だめならその理由
         private readonly Action<string> showError;       // 理由を出す(nullで消す)
         private readonly int minWidth;
+        private readonly float scale;
         private bool done;
 
         public event EventHandler TextWidthChanged;
 
-        // fontPx: チップの文字の大きさ(ピクセル). scale: そのモニターの拡大率(96 DPIで1)
-        public InlineNameEditor(string name, float fontPx, float scale, Func<string, string> apply, Action<string> showError)
+        // fontPx: チップの文字の大きさ(ピクセル). scale: そのモニターの拡大率(96 DPIで1).
+        // back, fore: チップと同じ色(クレイ色のチップならクレイ色のまま入力する)
+        public InlineNameEditor(string name, float fontPx, float scale, Color back, Color fore, Func<string, string> apply, Action<string> showError)
         {
             this.apply = apply;
             this.showError = showError;
-            minWidth = (int)Math.Round(48 * scale);
+            this.scale = scale;
+            minWidth = (int)Math.Round(24 * scale);
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
             AutoScaleMode = AutoScaleMode.None;
-            BackColor = Theme.Surface;
+            BackColor = back;
             Text = "Wakudori - 名前を変える";
 
             box = new TextBox();
             box.BorderStyle = BorderStyle.None;
             box.Font = Theme.Body(fontPx);
-            box.BackColor = Theme.Surface;
-            box.ForeColor = Theme.Text;
+            box.BackColor = back;
+            box.ForeColor = fore;
             box.MaxLength = 60;
             box.Text = name ?? "";
-            box.Dock = DockStyle.Fill;
+            box.Dock = DockStyle.Top;
             box.TextChanged += delegate
             {
                 if (showError != null) showError(null);
@@ -56,8 +59,8 @@ namespace Wakudori
         {
             get
             {
-                Size s = TextRenderer.MeasureText(box.Text + " ", box.Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.TextBoxControl);
-                return Math.Max(minWidth, s.Width);
+                // チップの名前の幅と同じ測り方(OverlayForm.MeasureNameWidth)にして, 入力を始めたときに幅が変わらないようにする
+                return Math.Max(minWidth, OverlayForm.MeasureNameWidth(box.Text, box.Font, scale));
             }
         }
 
@@ -67,6 +70,8 @@ namespace Wakudori
             if (textArea.IsEmpty) return;
             int h = box.PreferredHeight;
             Bounds = new Rectangle(textArea.X, textArea.Y + (textArea.Height - h) / 2, textArea.Width, h);
+            // Windowsが画面を最小の大きさより小さくしない場合でも, 入力欄の外は見せない
+            Region = new Region(new Rectangle(0, 0, textArea.Width, h));
         }
 
         protected override void OnShown(EventArgs e)
@@ -74,7 +79,8 @@ namespace Wakudori
             base.OnShown(e);
             Activate();
             box.Focus();
-            box.SelectAll();
+            box.SelectionStart = box.TextLength; // 全体を選ばず, 末尾にカーソルを置く(そのまま続けて打てる)
+            box.SelectionLength = 0;
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)

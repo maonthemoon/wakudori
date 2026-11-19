@@ -9,6 +9,7 @@ using System.Windows.Forms;
 namespace Wakudori
 {
     internal delegate void RegionChosenHandler(object sender, SavedRegion region);
+    internal delegate void RegionMovedHandler(object sender, int from, int to);
 
     // 1つのモニターを覆う選択画面.
     // 異なるDPIのモニターをまたぐ1枚のウィンドウはずれやすいので, モニターごとに1枚ずつ作る.
@@ -32,7 +33,7 @@ namespace Wakudori
         private static readonly Color LineColor = Color.FromArgb(242, 0xFA, 0xF9, 0xF5);
         private static readonly Color KnobColor = Color.FromArgb(255, 0xFA, 0xF9, 0xF5);
 
-        private enum DragMode { None, Move, FrameHandle }
+        private enum DragMode { None, Move, FrameHandle, ListPress, ListDrag } // ListPress: 名前を押した(まだ動かしていない)
 
         private readonly int monitorIndex;
         private readonly Rectangle bounds;  // モニターの範囲(仮想スクリーン座標, 物理ピクセル)
@@ -60,6 +61,7 @@ namespace Wakudori
         public event RegionChosenHandler RegionHovered;       // 一覧の名前にカーソルが乗った(下見). 離れたらnull
         public event RegionChosenHandler RegionEditRequested;   // 一覧の名前をダブルクリックした(その場で名前を変える)
         public event RegionChosenHandler RegionDeleteRequested; // 一覧の名前の右端の×を押した
+        public event RegionMovedHandler RegionMoved;            // 一覧の名前をドラッグして並べ替えた(fromの範囲をtoの位置へ)
         public event EventHandler PreviewCancelRequested;     // 下見をやめて元の枠に戻してほしい(キー操作や枠の操作の前)
 
         // 保存した範囲の一覧(A4, A7). 数字キーのため全フォームが持つが, 描くのはshowListのフォームだけ
@@ -76,6 +78,15 @@ namespace Wakudori
         private int editingRegion = -1;     // その場で名前を変えている範囲の番号
         private int editTextWidth;          // 名前を変えている間の, 入力欄の幅
         private bool editingInMenu;         // 縦の一覧の項目を変えている(幅は変えない)
+        private bool editActive;            // 名前を変え始めたとき, そのチップがクレイ色だったか(色はそのまま保つ)
+        // 名前のドラッグでの並べ替え
+        private int pressRegion = -1;       // 押した名前
+        private bool pressFromMenu;
+        private Point pressPoint;           // 押した位置(ローカル座標)
+        private Point grabOffset;           // 押した位置の, 名前の左上からのずれ
+        private Point listDragPos;          // ドラッグ中のカーソル(ローカル座標)
+        private int dropBefore = -1;        // この番号の範囲の前に入れる(末尾ならCount). -1は入れない
+        private bool dropInRow;             // 入れる場所が1行のほう(falseなら縦の一覧)
         private string editError;           // 名前を変えられない理由. 名前の下に吹き出しで出す
 
         public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList)
@@ -145,8 +156,6 @@ namespace Wakudori
         public void RefreshRegions()
         {
             rowRects = null;
-            menuOpen = false;
-            menuScroll = 0;
             hover = ListHit.None;
             hoveredRegion = -1;
             Present();
@@ -347,12 +356,23 @@ namespace Wakudori
         // チップの幅: 左の余白, 番号, 名前, 右端の×の場所. 名前を変えている間は, 入力欄の幅に合わせて伸び縮みする
         private int ChipWidth(Graphics g, Font font, int i)
         {
-            int text = i == editingRegion && !editingInMenu
-                ? editTextWidth
-                : (int)Math.Ceiling(g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic).Width);
+            int text = i == editingRegion && !editingInMenu ? editTextWidth : TextWidthOf(regions[i].Name, font);
             int w = Scaled(ChipPadX96) + text + Scaled(DeleteZone96);
             if (i < 9) w += Scaled(BadgeSize96) + Scaled(6);
             return w;
+        }
+
+        // 名前の文字の幅. その場で名前を変えるときの入力欄(InlineNameEditor.TextWidth)と同じ測り方にして,
+        // 入力を始めたときにチップの幅が変わらないようにする.
+        public static int MeasureNameWidth(string text, Font font, float scale)
+        {
+            Size sz = TextRenderer.MeasureText(text ?? "", font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            return sz.Width + (int)Math.Round(6 * scale);
+        }
+
+        private int TextWidthOf(string text, Font font)
+        {
+            return MeasureNameWidth(text, font, scale);
         }
 
         // 名前の文字を置く場所(番号の右から, ×の場所の手前まで)
@@ -375,6 +395,7 @@ namespace Wakudori
         {
             editingRegion = regions.IndexOf(region);
             editingInMenu = menuOpen && menuItems.Contains(editingRegion);
+            editActive = IsActive(editingRegion);
             editTextWidth = textWidth;
             editError = null;
             rowRects = null;
@@ -407,6 +428,13 @@ namespace Wakudori
             editError = null;
             rowRects = null;
             Present();
+        }
+
+        // 入力欄の色. チップと同じ(クレイ色のチップならクレイ色のまま入力する)
+        public void GetEditColors(out Color back, out Color fore)
+        {
+            back = editActive ? Theme.AccentInteractive : (editingInMenu ? Theme.BgMuted : Theme.Bg);
+            fore = editActive ? Color.White : Theme.Text;
         }
 
         private Rectangle EditTextRect()
@@ -462,6 +490,7 @@ namespace Wakudori
                 if (!moreRect.IsEmpty) moreRect.X += offset;
             }
             if (menuItems.Count == 0) menuOpen = false;
+            menuScroll = Math.Max(0, Math.Min(menuScroll, menuItems.Count - Math.Min(MenuMaxItems, menuItems.Count)));
         }
 
         // 「+N」で開く一覧の外枠と, 見えている項目の数
@@ -508,6 +537,7 @@ namespace Wakudori
                 for (int k = 0; k < rowItems.Count; k++)
                 {
                     int i = rowItems[k];
+                    if (dragMode == DragMode.ListDrag && i == pressRegion) continue; // ドラッグ中の名前はカーソルの位置に描く
                     bool hot = (hover.Kind == ListHitKind.Chip || hover.Kind == ListHitKind.Delete) && hover.Region == i;
                     DrawItem(g, rowRects[k], i, font, badgeFont, center, left, hot, true);
                 }
@@ -538,6 +568,7 @@ namespace Wakudori
                         int idx = menuScroll + row;
                         if (idx >= menuItems.Count) break;
                         int i = menuItems[idx];
+                        if (dragMode == DragMode.ListDrag && i == pressRegion) continue;
                         bool hot = (hover.Kind == ListHitKind.MenuItem || hover.Kind == ListHitKind.Delete) && hover.Region == i;
                         DrawItem(g, MenuItemRect(menu, row), i, font, badgeFont, center, left, hot, false);
                     }
@@ -553,6 +584,7 @@ namespace Wakudori
                         }
                     }
                 }
+                if (dragMode == DragMode.ListDrag && pressRegion >= 0) DrawListDrag(g, font, badgeFont, center, left);
             }
             if (editError != null && editingRegion >= 0) DrawEditError(g);
             g.TextRenderingHint = TextRenderingHint.SystemDefault;
@@ -561,7 +593,91 @@ namespace Wakudori
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // 名前を変えられない理由を, 名前の下に濃い吹き出しで出す(文が途切れないよう, 長さに合わせる)
+        // ---- ドラッグでの並べ替え ----
+
+        // カーソルの位置から, どの範囲の前に入れるかを決める. 1行の上下の帯か, 開いている縦の一覧の中だけ
+        private int DropTarget(Point local, out bool inRow)
+        {
+            inRow = false;
+            int visible = 0;
+            Rectangle menu = menuOpen ? MenuRect(out visible) : Rectangle.Empty;
+            if (menuOpen && menu.Contains(local))
+            {
+                int last = -1;
+                for (int row = 0; row < visible; row++)
+                {
+                    int idx = menuScroll + row;
+                    if (idx >= menuItems.Count) break;
+                    Rectangle ir = MenuItemRect(menu, row);
+                    if (local.Y < ir.Y + ir.Height / 2) return menuItems[idx];
+                    last = menuItems[idx];
+                }
+                return last >= 0 ? last + 1 : -1;
+            }
+            if (rowRects.Count > 0)
+            {
+                Rectangle r0 = rowRects[0];
+                int band = Scaled(16);
+                if (local.Y >= r0.Top - band && local.Y <= r0.Bottom + band)
+                {
+                    inRow = true;
+                    for (int k = 0; k < rowRects.Count; k++)
+                    {
+                        if (local.X < rowRects[k].X + rowRects[k].Width / 2) return rowItems[k];
+                    }
+                    return rowItems[rowItems.Count - 1] + 1;
+                }
+            }
+            return -1;
+        }
+
+        // ドラッグ中: 入れる場所に細い棒を出し, 名前はカーソルについて動かす
+        private void DrawListDrag(Graphics g, Font font, Font badgeFont, StringFormat center, StringFormat left)
+        {
+            using (SolidBrush bar = new SolidBrush(Theme.Bg))
+            {
+                int t = Scaled(3);
+                if (dropBefore >= 0 && dropInRow)
+                {
+                    int x = -1;
+                    for (int k = 0; k < rowItems.Count; k++)
+                    {
+                        if (rowItems[k] == dropBefore) { x = rowRects[k].X - Scaled(ChipGap96) / 2; break; }
+                    }
+                    if (x < 0) x = rowRects[rowRects.Count - 1].Right + Scaled(ChipGap96) / 2;
+                    Rectangle r0 = rowRects[0];
+                    g.FillRectangle(bar, x - t / 2, r0.Y - Scaled(2), t, r0.Height + Scaled(4));
+                }
+                else if (dropBefore >= 0 && menuOpen)
+                {
+                    int visible;
+                    Rectangle menu = MenuRect(out visible);
+                    int y = -1;
+                    for (int row = 0; row < visible; row++)
+                    {
+                        int idx = menuScroll + row;
+                        if (idx < menuItems.Count && menuItems[idx] == dropBefore) { y = MenuItemRect(menu, row).Y; break; }
+                    }
+                    if (y < 0) y = MenuItemRect(menu, Math.Min(visible, menuItems.Count - menuScroll)).Y;
+                    using (SolidBrush ink = new SolidBrush(Theme.Text))
+                    {
+                        g.FillRectangle(ink, menu.X + Scaled(8), y - t / 2, menu.Width - Scaled(16), t);
+                    }
+                }
+            }
+
+            bool pill;
+            Rectangle src = ItemRect(pressRegion, out pill);
+            if (src.IsEmpty)
+            {
+                pill = !pressFromMenu;
+                src = new Rectangle(0, 0, Scaled(MenuWidth96), Scaled(ChipHeight96));
+            }
+            Rectangle floating = new Rectangle(listDragPos.X - grabOffset.X, listDragPos.Y - grabOffset.Y, src.Width, src.Height);
+            DrawItem(g, floating, pressRegion, font, badgeFont, center, left, true, pill);
+        }
+
+        // 名前を変えられない理由を, 名前の下にアイボリーの吹き出しで出す(文が途切れないよう, 長さに合わせる)
         private void DrawEditError(Graphics g)
         {
             bool pill;
@@ -579,10 +695,12 @@ namespace Wakudori
                 int y = rc.Bottom + Scaled(8);
                 Rectangle box = new Rectangle(x, y, w, h);
                 using (GraphicsPath path = Theme.RoundedRect(box, Scaled(8)))
-                using (SolidBrush b = new SolidBrush(Theme.Text))
-                using (SolidBrush t = new SolidBrush(Theme.Bg))
+                using (SolidBrush b = new SolidBrush(Theme.Bg))
+                using (Pen border = new Pen(Theme.Border))
+                using (SolidBrush t = new SolidBrush(Theme.Danger))
                 {
                     g.FillPath(b, path);
+                    g.DrawPath(border, path);
                     g.DrawString(editError, font, t, new RectangleF(x + padX, y + padY, w - padX * 2 + 1, h - padY * 2 + 1), fmt);
                 }
             }
@@ -593,8 +711,9 @@ namespace Wakudori
         private void DrawItem(Graphics g, Rectangle rc, int i, Font font, Font badgeFont, StringFormat center, StringFormat left, bool hot, bool pill)
         {
             bool editing = i == editingRegion;
-            bool active = IsActive(i) && !editing;
-            Color back = editing ? Theme.Surface : active ? Theme.AccentInteractive : (hot ? Theme.BgMuted : (pill ? Theme.Bg : Color.Transparent));
+            bool active = editing ? editActive : IsActive(i);
+            if (editing) hot = editingInMenu; // 入力欄の色(GetEditColors)とそろえる
+            Color back = active ? Theme.AccentInteractive : (hot ? Theme.BgMuted : (pill ? Theme.Bg : Color.Transparent));
             Color fore = active ? Color.White : Theme.Text;
             if (back.A > 0)
             {
@@ -604,7 +723,8 @@ namespace Wakudori
                     g.FillPath(b, path);
                     if (editing)
                     {
-                        using (Pen pen = new Pen(Theme.Text, Math.Max(1f, 1.5f * scale)))
+                        // 入力中の印に, 文字と同じ色の細いふちを付ける
+                        using (Pen pen = new Pen(Color.FromArgb(150, fore), Math.Max(1f, 1.2f * scale)))
                         {
                             g.DrawPath(pen, path);
                         }
@@ -826,12 +946,15 @@ namespace Wakudori
                     if (RegionEditRequested != null) RegionEditRequested(this, region);
                     return;
                 }
-                // 名前を押したら, その範囲に決める(A4). 下見で動いていた枠がそのまま残る.
-                // 縦の一覧は開いたままにする(続けてダブルクリックで名前を変えられるように). 閉じるのは外のクリックかEsc.
-                if (lh.Kind == ListHitKind.Chip) menuOpen = false;
-                hoveredRegion = -1;
-                if (RegionChosen != null) RegionChosen(this, region);
-                Present();
+                // 押しただけでは決めない. 離したときに決める(動かしたらドラッグでの並べ替え).
+                dragMode = DragMode.ListPress;
+                pressRegion = lh.Region;
+                pressFromMenu = lh.Kind == ListHitKind.MenuItem;
+                pressPoint = e.Location;
+                bool pill;
+                Rectangle rc = ItemRect(lh.Region, out pill);
+                grabOffset = new Point(e.X - rc.X, e.Y - rc.Y);
+                Capture = true;
                 return;
             }
             if (lh.Kind == ListHitKind.More)
@@ -878,6 +1001,24 @@ namespace Wakudori
             int tdx = p.X - dragStart.X;
             int tdy = p.Y - dragStart.Y;
 
+            if (dragMode == DragMode.ListPress)
+            {
+                if (Math.Abs(e.X - pressPoint.X) <= Scaled(6) && Math.Abs(e.Y - pressPoint.Y) <= Scaled(6)) return;
+                // 動かしたら並べ替えを始める. 下見はやめて元の枠に戻す
+                dragMode = DragMode.ListDrag;
+                if (PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
+                hoveredRegion = -1;
+                hover = ListHit.None;
+                Cursor = Cursors.SizeAll;
+            }
+            if (dragMode == DragMode.ListDrag)
+            {
+                listDragPos = e.Location;
+                dropBefore = DropTarget(e.Location, out dropInRow);
+                Present();
+                return;
+            }
+
             if (dragMode == DragMode.Move)
             {
                 selection.MoveTo(new Point(frameAtDragStart.X + tdx, frameAtDragStart.Y + tdy), p);
@@ -914,6 +1055,35 @@ namespace Wakudori
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            if (e.Button == MouseButtons.Left && dragMode == DragMode.ListPress)
+            {
+                // 名前を押して離した: その範囲に決める(A4). 下見で動いていた枠がそのまま残る.
+                // 縦の一覧は開いたままにする(続けてダブルクリックで名前を変えられるように).
+                dragMode = DragMode.None;
+                Capture = false;
+                int r = pressRegion;
+                pressRegion = -1;
+                if (!pressFromMenu) menuOpen = false;
+                hoveredRegion = -1;
+                if (r >= 0 && r < regions.Count && RegionChosen != null) RegionChosen(this, regions[r]);
+                Present();
+                return;
+            }
+            if (e.Button == MouseButtons.Left && dragMode == DragMode.ListDrag)
+            {
+                dragMode = DragMode.None;
+                Capture = false;
+                int from = pressRegion, before = dropBefore;
+                pressRegion = -1;
+                dropBefore = -1;
+                if (before >= 0)
+                {
+                    int to = before > from ? before - 1 : before;
+                    if (to != from && RegionMoved != null) RegionMoved(this, from, to);
+                }
+                Present();
+                return;
+            }
             if (e.Button == MouseButtons.Left && dragMode != DragMode.None)
             {
                 dragMode = DragMode.None;
@@ -926,6 +1096,7 @@ namespace Wakudori
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
+            if (dragMode == DragMode.ListPress || dragMode == DragMode.ListDrag) return; // 並べ替えの途中は何もしない
             if (dragMode == DragMode.None) selection.HoverHandle = FrameHandle.None;
             SetListHover(ListHit.None);
             CloseMenu();

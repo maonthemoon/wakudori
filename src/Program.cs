@@ -32,7 +32,7 @@ namespace Wakudori
             {
                 if (!createdNew)
                 {
-                    Notice.Show("すでに起動しています", "タスクトレイのアイコンか, 登録したホットキーから使ってください.", NoticeKind.Info);
+                    Notice.Show("すでに起動しています", "タスクトレイのアイコンかホットキーで起動", NoticeKind.Info);
                     return 0;
                 }
 
@@ -128,6 +128,7 @@ namespace Wakudori
                 f.RegionHovered += OnRegionHovered;
                 f.RegionEditRequested += OnRegionEditRequested;
                 f.RegionDeleteRequested += OnRegionDeleteRequested;
+                f.RegionMoved += OnRegionMoved;
                 f.PreviewCancelRequested += delegate { EndPreview(); };
                 forms.Add(f);
             }
@@ -208,10 +209,17 @@ namespace Wakudori
             if (!CheckCanSave()) return;
             if (editor != null) editor.Close();
             OverlayForm owner = (OverlayForm)sender;
-            InlineNameEditor ed = new InlineNameEditor(region.Name, owner.ChipFontPx, owner.DpiScale,
+            // チップの幅と色は, 入力を始める前と同じにする
+            Rectangle area;
+            using (Font f = Theme.Body(owner.ChipFontPx))
+            {
+                area = owner.BeginEdit(region, OverlayForm.MeasureNameWidth(region.Name, f, owner.DpiScale));
+            }
+            Color back, fore;
+            owner.GetEditColors(out back, out fore);
+            InlineNameEditor ed = new InlineNameEditor(region.Name, owner.ChipFontPx, owner.DpiScale, back, fore,
                 delegate(string text) { return ApplyRename(region, text); },
                 delegate(string message) { owner.SetEditError(message); });
-            Rectangle area = owner.BeginEdit(region, ed.TextWidth);
             if (area.IsEmpty)
             {
                 owner.EndEdit();
@@ -257,7 +265,24 @@ namespace Wakudori
             return null;
         }
 
-        // 一覧の名前の右上の×: 確認してから削除する.
+        // 一覧の名前をドラッグで並べ替えた. 数字キーの番号も並び順に合わせて1, 2, 3...になる.
+        private void OnRegionMoved(object sender, int from, int to)
+        {
+            if (capturing || closed) return;
+            if (!CheckCanSave()) return;
+            if (from < 0 || from >= store.Regions.Count || to < 0 || to >= store.Regions.Count) return;
+            SavedRegion r = store.Regions[from];
+            store.Regions.RemoveAt(from);
+            store.Regions.Insert(to, r);
+            if (!TrySaveStore())
+            {
+                store.Regions.RemoveAt(to);
+                store.Regions.Insert(from, r);
+            }
+            foreach (OverlayForm f in forms) f.RefreshRegions();
+        }
+
+        // 一覧の名前の右端の×: 確認してから削除する.
         private void OnRegionDeleteRequested(object sender, SavedRegion region)
         {
             if (capturing || closed) return;

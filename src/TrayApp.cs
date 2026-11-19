@@ -180,13 +180,13 @@ namespace Wakudori
             menu.BackColor = Theme.Bg;
             menu.ForeColor = Theme.Text;
             menu.Padding = new Padding(0, 4, 0, 4);
-            ToolStripMenuItem select = new ToolStripMenuItem("範囲を選ぶ");
+            ToolStripMenuItem select = new ToolStripMenuItem("撮影");
             select.Font = new Font(select.Font, FontStyle.Bold);
             select.Click += delegate { OpenSelection(); };
             menu.Items.Add(select);
-            menu.Items.Add(new ToolStripMenuItem("ホットキーを登録し直す", null, delegate { ShowHotkeyDialog(false); }));
+            menu.Items.Add(new ToolStripMenuItem("ホットキー再登録", null, delegate { ShowHotkeyDialog(false); }));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("保存先のフォルダーを開く", null, delegate { OpenFolder(settings.SaveDir); }));
+            menu.Items.Add(new ToolStripMenuItem("画像保存フォルダーを開く", null, delegate { OpenFolder(settings.SaveDir); }));
             menu.Items.Add(new ToolStripMenuItem("設定フォルダーを開く", null, delegate { OpenFolder(AppSettings.ConfigDir); }));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("終了", null, delegate { Exit(); }));
