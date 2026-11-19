@@ -1,19 +1,21 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace Wakudori
 {
     // ホットキーを登録する画面(B2). 使うキーを押してもらい, Enterか「登録」で登録する.
-    internal sealed class HotkeyForm : Form
+    internal sealed class HotkeyForm : ThemedForm
     {
         private const int WM_SYSCOMMAND = 0x0112;
         private const int SC_KEYMENU = 0xF100;
+        private const string DefaultMessage = "例: Ctrl+Shift+S, F12, PrintScreen";
 
         private readonly Func<HotkeySpec, string> tryRegister;
-        private readonly Label keyLabel;
+        private readonly KeycapView keys;
         private readonly Label messageLabel;
-        private readonly Button okButton;
+        private readonly ThemedButton okButton;
         private bool hasCandidate;
         private HotkeySpec candidate;
 
@@ -21,100 +23,60 @@ namespace Wakudori
         public HotkeyForm(string current, bool firstRun, Func<HotkeySpec, string> tryRegister)
         {
             this.tryRegister = tryRegister;
+            Text = "Wakudori - ホットキーの登録";
+            KeyPreview = true;
 
             float scale = DeviceDpi / 96f;
-            Func<int, int> s = delegate(int v) { return (int)Math.Round(v * scale); };
+            int pad = S(32);
+            int width = S(480);
+            int inner = width - pad * 2;
 
-            Text = "Wakudori - ホットキーの登録";
-            Font = SystemFonts.MessageBoxFont;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            StartPosition = FormStartPosition.CenterScreen;
-            TopMost = true;
-            ShowInTaskbar = true;
-            KeyPreview = true;
-            AutoScaleMode = AutoScaleMode.None;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Padding = new Padding(s(16));
+            Label app = AddText("Wakudori", Theme.Body(S(14)), Theme.TextTertiary, pad, pad - S(4), inner);
+            ThemedButton close = new ThemedButton("×", ButtonKind.Ghost, Theme.Body(S(18)), scale);
+            close.Size = new Size(S(36), S(36));
+            close.Location = new Point(width - S(16) - close.Width, S(16));
+            close.Click += delegate { Cancel(); };
+            Controls.Add(close);
 
-            TableLayoutPanel table = new TableLayoutPanel();
-            table.AutoSize = true;
-            table.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            table.ColumnCount = 1;
-            table.Dock = DockStyle.Fill;
-            Controls.Add(table);
+            int y = app.Bottom + S(8);
+            Label h = AddText(firstRun ? "ホットキーを登録する" : "ホットキーを登録し直す", Theme.Heading(S(24)), Theme.Text, pad - S(2), y, inner);
+            y = h.Bottom + S(12);
+            Label body = AddText("選択画面を開くキーを押してください. 押しても表示されないキーは, 他のアプリかWindowsが使っています.",
+                Theme.Body(S(15)), Theme.TextSecondary, pad, y, inner);
+            y = body.Bottom + S(24);
 
-            int width = s(420);
-            string intro = firstRun
-                ? "選択画面を開くホットキーを登録します."
-                : "選択画面を開くホットキーを登録し直します.";
-            table.Controls.Add(MakeLabel(intro, width, s(0)));
-            table.Controls.Add(MakeLabel(
-                "使うキーを押してください(例: Ctrl+Shift+S, F12, PrintScreen).\r\n"
-                + "Enterで登録, Escでやめます.\r\n"
-                + "押しても何も表示されないキーは, 他のアプリかWindowsが使っています.", width, s(8)));
-            if (!string.IsNullOrEmpty(current))
-            {
-                table.Controls.Add(MakeLabel("今のキー: " + current, width, s(8)));
-            }
+            keys = new KeycapView(scale);
+            keys.Bounds = new Rectangle(pad, y, inner, S(112));
+            Controls.Add(keys);
+            EnableDrag(keys);
+            y = keys.Bottom + S(12);
 
-            keyLabel = MakeLabel("(キーを押してください)", width, s(12));
-            keyLabel.Font = new Font(Font.FontFamily, 16f, FontStyle.Bold);
-            keyLabel.TextAlign = ContentAlignment.MiddleCenter;
-            keyLabel.ForeColor = SystemColors.GrayText;
-            table.Controls.Add(keyLabel);
+            messageLabel = AddText(DefaultMessage, Theme.Body(S(14)), Theme.TextTertiary, pad, y, inner);
+            messageLabel.AutoSize = false;
+            messageLabel.Size = new Size(inner, S(64)); // 3行まで. 文の長さで画面の高さが変わらないようにする
+            y = messageLabel.Bottom + S(16);
 
-            messageLabel = MakeLabel(" ", width, s(8));
-            table.Controls.Add(messageLabel);
-
-            FlowLayoutPanel buttons = new FlowLayoutPanel();
-            buttons.FlowDirection = FlowDirection.RightToLeft;
-            buttons.AutoSize = true;
-            buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            buttons.Dock = DockStyle.Fill;
-            buttons.Margin = new Padding(0, s(12), 0, 0);
-
-            Button cancelButton = MakeButton("やめる", s);
-            cancelButton.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
-            okButton = MakeButton("登録", s);
+            okButton = new ThemedButton("登録", ButtonKind.Accent, Theme.BodyStrong(S(15)), scale);
+            okButton.Location = new Point(width - pad - okButton.Width, y);
             okButton.Enabled = false;
             okButton.Click += delegate { Confirm(); };
-            buttons.Controls.Add(cancelButton);
-            buttons.Controls.Add(okButton);
-            table.Controls.Add(buttons);
+            Controls.Add(okButton);
+
+            ThemedButton cancel = new ThemedButton("やめる", ButtonKind.Secondary, Theme.BodyStrong(S(15)), scale);
+            cancel.Location = new Point(okButton.Left - S(8) - cancel.Width, y);
+            cancel.Click += delegate { Cancel(); };
+            Controls.Add(cancel);
+
+            if (!string.IsNullOrEmpty(current))
+            {
+                Label cur = AddText("今のキー: " + current, Theme.Body(S(14)), Theme.TextTertiary, pad, y, cancel.Left - pad - S(8));
+                cur.Top = y + (okButton.Height - cur.Height) / 2;
+            }
+
+            ClientSize = new Size(width, okButton.Bottom + pad);
         }
 
         public HotkeySpec Result { get { return candidate; } }
-
-        private static Label MakeLabel(string text, int width, int top)
-        {
-            Label l = new Label();
-            l.Text = text;
-            l.AutoSize = true;
-            l.MaximumSize = new Size(width, 0);
-            l.MinimumSize = new Size(width, 0);
-            l.Margin = new Padding(0, top, 0, 0);
-            return l;
-        }
-
-        private static Button MakeButton(string text, Func<int, int> s)
-        {
-            Button b = new Button();
-            b.Text = text;
-            b.AutoSize = true;
-            b.MinimumSize = new Size(s(88), s(28));
-            b.TabStop = false; // キーはすべてホットキーの入力に使う
-            b.Margin = new Padding(s(8), 0, 0, 0);
-            return b;
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            Activate();
-        }
 
         // キーはここですべて受け取る(Alt, F10, Tab, 矢印キーなども).
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -160,8 +122,7 @@ namespace Wakudori
 
             if (mods == HotkeyModifiers.None && key == Keys.Escape)
             {
-                DialogResult = DialogResult.Cancel;
-                Close();
+                Cancel();
                 return;
             }
             if (mods == HotkeyModifiers.None && key == Keys.Enter)
@@ -171,21 +132,12 @@ namespace Wakudori
             }
 
             HotkeySpec spec = new HotkeySpec(mods, vk);
-            keyLabel.Text = HotkeyText.Format(spec);
             string reason = HotkeyText.Validate(spec);
-            if (reason != null)
-            {
-                hasCandidate = false;
-                keyLabel.ForeColor = SystemColors.GrayText;
-                ShowMessage(reason, true);
-            }
-            else
-            {
-                hasCandidate = true;
-                candidate = spec;
-                keyLabel.ForeColor = SystemColors.ControlText;
-                ShowMessage("Enterか「登録」で登録します.", false);
-            }
+            hasCandidate = reason == null;
+            if (hasCandidate) candidate = spec;
+            keys.SetKeys(HotkeyText.Format(spec).Split('+'), hasCandidate);
+            if (reason != null) ShowMessage(reason, true);
+            else ShowMessage("Enterか「登録」で登録します.", false);
             okButton.Enabled = hasCandidate;
         }
 
@@ -201,7 +153,7 @@ namespace Wakudori
             {
                 hasCandidate = false;
                 okButton.Enabled = false;
-                keyLabel.ForeColor = SystemColors.GrayText;
+                keys.SetKeys(keys.Parts, false);
                 ShowMessage(error, true);
                 return;
             }
@@ -209,10 +161,129 @@ namespace Wakudori
             Close();
         }
 
+        private void Cancel()
+        {
+            DialogResult = DialogResult.Cancel;
+            Close();
+        }
+
         private void ShowMessage(string text, bool error)
         {
             messageLabel.Text = text;
-            messageLabel.ForeColor = error ? Color.FromArgb(0xB0, 0x30, 0x20) : SystemColors.ControlText;
+            messageLabel.ForeColor = error ? Theme.Danger : Theme.TextTertiary;
+        }
+    }
+
+    // 押したキーを, キーボードのキーの形で並べて見せる.
+    internal sealed class KeycapView : Control
+    {
+        private readonly float scale;
+        private readonly Font capFont;
+        private readonly Font plusFont;
+        private readonly Font placeholderFont;
+        private string[] parts;
+        private bool valid;
+
+        public KeycapView(float scale)
+        {
+            this.scale = scale;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+            capFont = Theme.BodyStrong(S(18));
+            plusFont = Theme.Body(S(16));
+            placeholderFont = Theme.Body(S(15));
+        }
+
+        public string[] Parts { get { return parts; } }
+
+        public void SetKeys(string[] keys, bool isValid)
+        {
+            parts = keys;
+            valid = isValid;
+            Invalidate();
+        }
+
+        private int S(float v)
+        {
+            return (int)Math.Round(v * scale);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            Color parentBg = Parent != null ? Parent.BackColor : Theme.Bg;
+            g.Clear(parentBg);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            using (GraphicsPath panel = Theme.RoundedRect(new RectangleF(0, 0, Width - 1, Height - 1), 12 * scale))
+            using (SolidBrush b = new SolidBrush(Theme.BgSubtle))
+            {
+                g.FillPath(b, panel);
+            }
+
+            if (parts == null || parts.Length == 0)
+            {
+                TextRenderer.DrawText(g, "キーを押してください", placeholderFont, ClientRectangle, Theme.TextTertiary, Theme.BgSubtle,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                return;
+            }
+
+            int capH = S(48), capPadX = S(16), capMinW = S(48), gap = S(10), lift = Math.Max(2, S(3));
+            Size plusSize = TextRenderer.MeasureText(g, "+", plusFont, Size.Empty, TextFormatFlags.NoPadding);
+            int[] widths = new int[parts.Length];
+            int total = 0;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                Size ts = TextRenderer.MeasureText(g, parts[i], capFont, Size.Empty, TextFormatFlags.NoPadding);
+                widths[i] = Math.Max(capMinW, ts.Width + capPadX * 2);
+                total += widths[i];
+                if (i > 0) total += gap * 2 + plusSize.Width;
+            }
+
+            int x = (Width - total) / 2;
+            int top = (Height - capH - lift) / 2;
+            Color text = valid ? Theme.Text : Theme.TextTertiary;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (i > 0)
+                {
+                    x += gap;
+                    Rectangle pr = new Rectangle(x, top, plusSize.Width, capH);
+                    TextRenderer.DrawText(g, "+", plusFont, pr, Theme.TextTertiary, Theme.BgSubtle,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                    x += plusSize.Width + gap;
+                }
+
+                // 下側を少し厚くして, キーボードのキーに見せる(影は使わない).
+                RectangleF baseRc = new RectangleF(x + 0.5f, top + lift + 0.5f, widths[i] - 1, capH - 1);
+                RectangleF capRc = new RectangleF(x + 0.5f, top + 0.5f, widths[i] - 1, capH - 1);
+                float r = 8 * scale;
+                using (GraphicsPath basePath = Theme.RoundedRect(baseRc, r))
+                using (GraphicsPath capPath = Theme.RoundedRect(capRc, r))
+                using (SolidBrush baseBrush = new SolidBrush(Theme.Border))
+                using (SolidBrush capBrush = new SolidBrush(Theme.Surface))
+                using (Pen border = new Pen(Theme.Border))
+                {
+                    g.FillPath(baseBrush, basePath);
+                    g.FillPath(capBrush, capPath);
+                    g.DrawPath(border, capPath);
+                }
+                TextRenderer.DrawText(g, parts[i], capFont, new Rectangle(x, top, widths[i], capH), text, Theme.Surface,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+                x += widths[i];
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                capFont.Dispose();
+                plusFont.Dispose();
+                placeholderFont.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

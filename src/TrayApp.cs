@@ -1,8 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Windows.Forms;
 
@@ -28,7 +26,7 @@ namespace Wakudori
             hotkeyWindow = new HotkeyWindow();
             hotkeyWindow.Pressed += delegate { OpenSelection(); };
 
-            iconHandle = CreateIconHandle(SystemInformation.SmallIconSize.Width);
+            iconHandle = Theme.CreateAppIconHandle(SystemInformation.SmallIconSize.Width);
             tray = new NotifyIcon();
             tray.Icon = Icon.FromHandle(iconHandle);
             tray.ContextMenuStrip = BuildMenu();
@@ -65,7 +63,7 @@ namespace Wakudori
             }
             if (problem == null) return;
 
-            MessageBox.Show(problem + "\r\n\r\n別のキーを登録してください.", "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Notice.Show("ホットキーを使えません", problem + "\r\n別のキーを登録してください.", NoticeKind.Warning);
             ShowHotkeyDialog(false);
         }
 
@@ -92,7 +90,7 @@ namespace Wakudori
                     if (HotkeyText.TryParse(settings.Hotkey, out old))
                     {
                         string error = hotkeyWindow.Register(old);
-                        if (error != null) MessageBox.Show(error, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        if (error != null) Notice.Show("前のホットキーに戻せませんでした", error, NoticeKind.Warning);
                     }
                 }
                 else
@@ -123,8 +121,8 @@ namespace Wakudori
             catch (Exception ex)
             {
                 settings.Hotkey = text;
-                MessageBox.Show("ホットキーは登録しましたが, 設定ファイルに保存できませんでした. 次に起動したときは登録し直しになります.\r\n\r\n" + ex.Message,
-                    "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Notice.Show("設定ファイルに保存できませんでした",
+                    "ホットキーは登録しましたが, 次に起動したときは登録し直しになります.\r\n\r\n" + ex.Message, NoticeKind.Warning);
             }
             return null;
         }
@@ -154,7 +152,7 @@ namespace Wakudori
             AppSettings latest = AppSettings.Load(out error);
             if (error != null)
             {
-                MessageBox.Show(error, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Notice.Show("設定ファイルを読めません", error, NoticeKind.Warning);
             }
             settings.SaveDir = latest.SaveDir;
             settings.CanSave = latest.CanSave;
@@ -167,7 +165,7 @@ namespace Wakudori
             catch (Exception ex)
             {
                 session = null;
-                MessageBox.Show("選択画面を開けませんでした.\r\n\r\n" + ex, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Notice.Show("選択画面を開けませんでした", ex.ToString(), NoticeKind.Error);
             }
         }
 
@@ -176,6 +174,12 @@ namespace Wakudori
         private ContextMenuStrip BuildMenu()
         {
             ContextMenuStrip menu = new ContextMenuStrip();
+            ToolStripProfessionalRenderer renderer = new ToolStripProfessionalRenderer(new Theme.MenuColors());
+            renderer.RoundedEdges = false;
+            menu.Renderer = renderer;
+            menu.BackColor = Theme.Bg;
+            menu.ForeColor = Theme.Text;
+            menu.Padding = new Padding(0, 4, 0, 4);
             ToolStripMenuItem select = new ToolStripMenuItem("範囲を選ぶ");
             select.Font = new Font(select.Font, FontStyle.Bold);
             select.Click += delegate { OpenSelection(); };
@@ -198,7 +202,7 @@ namespace Wakudori
             }
             catch (Exception ex)
             {
-                MessageBox.Show("フォルダーを開けませんでした: " + path + "\r\n\r\n" + ex.Message, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Notice.Show("フォルダーを開けませんでした", path + "\r\n\r\n" + ex.Message, NoticeKind.Warning);
             }
         }
 
@@ -212,59 +216,6 @@ namespace Wakudori
             hotkeyWindow.Dispose();
             NativeMethods.DestroyIcon(iconHandle);
             ExitThread();
-        }
-
-        // ---- アイコン ----
-
-        // クレイ色の角丸の四角に, 白い枠と四隅の丸を描く. 明るいタスクバーでも暗いタスクバーでも見える.
-        private static IntPtr CreateIconHandle(int size)
-        {
-            if (size < 16) size = 16;
-            using (Bitmap bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb))
-            {
-                using (Graphics g = Graphics.FromImage(bmp))
-                {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    g.Clear(Color.Transparent);
-                    float r = size * 0.22f;
-                    using (GraphicsPath bg = RoundedRect(new RectangleF(0, 0, size - 1, size - 1), r))
-                    using (SolidBrush clay = new SolidBrush(OverlayForm.AccentColor))
-                    {
-                        g.FillPath(clay, bg);
-                    }
-
-                    float inset = size * 0.27f;
-                    RectangleF frame = new RectangleF(inset, inset, size - 1 - inset * 2, size - 1 - inset * 2);
-                    float line = Math.Max(1f, size / 16f);
-                    using (Pen pen = new Pen(Color.White, line))
-                    {
-                        g.DrawRectangle(pen, frame.X, frame.Y, frame.Width, frame.Height);
-                    }
-                    float d = Math.Max(3f, size * 0.2f);
-                    using (SolidBrush white = new SolidBrush(Color.White))
-                    {
-                        PointF[] corners =
-                        {
-                            new PointF(frame.Left, frame.Top), new PointF(frame.Right, frame.Top),
-                            new PointF(frame.Left, frame.Bottom), new PointF(frame.Right, frame.Bottom)
-                        };
-                        foreach (PointF c in corners) g.FillEllipse(white, c.X - d / 2, c.Y - d / 2, d, d);
-                    }
-                }
-                return bmp.GetHicon();
-            }
-        }
-
-        private static GraphicsPath RoundedRect(RectangleF rc, float r)
-        {
-            float d = r * 2;
-            GraphicsPath p = new GraphicsPath();
-            p.AddArc(rc.Left, rc.Top, d, d, 180, 90);
-            p.AddArc(rc.Right - d, rc.Top, d, d, 270, 90);
-            p.AddArc(rc.Right - d, rc.Bottom - d, d, d, 0, 90);
-            p.AddArc(rc.Left, rc.Bottom - d, d, d, 90, 90);
-            p.CloseFigure();
-            return p;
         }
     }
 }

@@ -32,8 +32,7 @@ namespace Wakudori
             {
                 if (!createdNew)
                 {
-                    MessageBox.Show("Wakudoriはすでに起動しています. タスクトレイのアイコンかホットキーから使ってください.",
-                        "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Notice.Show("すでに起動しています", "タスクトレイのアイコンか, 登録したホットキーから使ってください.", NoticeKind.Info);
                     return 0;
                 }
 
@@ -41,7 +40,7 @@ namespace Wakudori
                 AppSettings settings = AppSettings.Load(out error);
                 if (error != null)
                 {
-                    MessageBox.Show(error + "\r\n\r\n既定の設定で続けます. このファイルは上書きしません.", "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Notice.Show("設定ファイルを読めません", error + "\r\n\r\n既定の設定で続けます. このファイルは上書きしません.", NoticeKind.Warning);
                 }
 
                 try
@@ -50,7 +49,7 @@ namespace Wakudori
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.ToString(), "Wakudori - エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Notice.Show("エラーで終了します", ex.ToString(), NoticeKind.Error);
                     return 1;
                 }
                 return 0;
@@ -100,7 +99,7 @@ namespace Wakudori
             store = RegionStore.Load(RegionStore.DefaultPath, out error);
             if (error != null)
             {
-                MessageBox.Show(error, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Notice.Show("範囲の保存ファイルを読めません", error, NoticeKind.Warning);
             }
 
             // 前回の範囲がなければ, マウスカーソルがあるモニターの中央に出す(C5).
@@ -169,7 +168,7 @@ namespace Wakudori
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("撮影または保存に失敗しました.\r\n\r\n" + ex.Message, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Notice.Show("撮影または保存に失敗しました", ex.Message, NoticeKind.Error);
                 }
                 CloseAll();
             };
@@ -200,7 +199,7 @@ namespace Wakudori
             }
             catch (Exception ex)
             {
-                MessageBox.Show("前回の範囲を保存できませんでした.\r\n\r\n" + ex.Message, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Notice.Show("前回の範囲を保存できませんでした", ex.Message, NoticeKind.Warning);
             }
         }
 
