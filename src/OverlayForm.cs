@@ -21,6 +21,10 @@ namespace Wakudori
 
         // 選んだ辺の色. Anthropicのクレイ色
         private static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
+        // Mac風の色. 白だと明るい画面で見にくいので, 少しグレーにする
+        private static readonly Color BorderColor = Color.FromArgb(255, 0xA6, 0xA6, 0xA6);      // 破線
+        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xF0, 0xF0, 0xF0);  // 丸の中
+        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x8A, 0x8A, 0x8A); // 丸のふち
 
         private enum DragMode { None, Move, FrameHandle }
 
@@ -174,62 +178,77 @@ namespace Wakudori
                     }
 
                     DrawBorder(g, local);
-                    DrawHandles(g, frame);
+                    DrawHandles(g, local);
                 }
 
                 if (showHelp) DrawHelp(g);
             }
         }
 
-        // Macのように白い破線で描く. 白い背景でも見えるよう, 下に薄い黒の線を敷く.
-        // 線は範囲のすぐ外側の1pxに描く. 撮るときは選択画面を消すので, 画像には入らない.
+        // 枠の線の位置(ローカル座標). 線は範囲のすぐ外側の1pxに描く.
+        // 撮るときは選択画面を消すので, 線も丸も画像には入らない.
+        // DrawRectangleは右端・下端の線を X+Width, Y+Height の画素に描くので,
+        // 4辺の線の画素は Left, Right, Top, Bottom そのものになる. 丸の中心もここにそろえる.
+        private static Rectangle BorderLine(Rectangle local)
+        {
+            return new Rectangle(local.X - 1, local.Y - 1, local.Width + 1, local.Height + 1);
+        }
+
+        // Macのように, 少しグレーの破線で描く(白だと明るい画面で見にくい).
         private void DrawBorder(Graphics g, Rectangle local)
         {
-            Rectangle line = new Rectangle(local.X - 1, local.Y - 1, local.Width + 1, local.Height + 1);
+            Rectangle line = BorderLine(local);
             float dash = Scaled(Dash96);
             g.CompositingMode = CompositingMode.SourceOver;
-            using (Pen shadow = new Pen(Color.FromArgb(110, 0, 0, 0), 1f))
-            using (Pen white = new Pen(Color.FromArgb(240, 255, 255, 255), 1f))
+            using (Pen pen = new Pen(BorderColor, 1f))
             {
-                white.DashPattern = new float[] { dash, dash };
-                g.DrawRectangle(shadow, line);
-                g.DrawRectangle(white, line);
+                pen.DashPattern = new float[] { dash, dash };
+                g.DrawRectangle(pen, line);
             }
 
-            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺.
+            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺. 線の中心は破線と同じ.
             FrameHandle h = selection.SelectedHandle;
             if (h != FrameHandle.None)
             {
-                int w = Scaled(2);
-                using (SolidBrush accent = new SolidBrush(AccentColor))
+                using (Pen accent = new Pen(AccentColor, Scaled(2)))
                 {
-                    if (MovesLeft(h)) g.FillRectangle(accent, line.Left - w + 1, line.Top - w + 1, w, line.Height + w * 2 - 1);
-                    if (MovesRight(h)) g.FillRectangle(accent, line.Right, line.Top - w + 1, w, line.Height + w * 2 - 1);
-                    if (MovesTop(h)) g.FillRectangle(accent, line.Left - w + 1, line.Top - w + 1, line.Width + w * 2 - 1, w);
-                    if (MovesBottom(h)) g.FillRectangle(accent, line.Left - w + 1, line.Bottom, line.Width + w * 2 - 1, w);
+                    if (MovesLeft(h)) g.DrawLine(accent, line.Left, line.Top, line.Left, line.Bottom);
+                    if (MovesRight(h)) g.DrawLine(accent, line.Right, line.Top, line.Right, line.Bottom);
+                    if (MovesTop(h)) g.DrawLine(accent, line.Left, line.Top, line.Right, line.Top);
+                    if (MovesBottom(h)) g.DrawLine(accent, line.Left, line.Bottom, line.Right, line.Bottom);
                 }
             }
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // ハンドルはMacのように白い小さな丸. 選んだ辺の上の丸はクレイ色にする.
-        private void DrawHandles(Graphics g, Rectangle frame)
+        // ハンドルはMacのように明るいグレーの小さな丸. 中心は辺の線の上(四隅は線の交点).
+        // 選んだ辺の上の丸はクレイ色にする.
+        private void DrawHandles(Graphics g, Rectangle local)
         {
-            Rectangle[] handles = Selection.HandleRects(frame, Scaled(HandleSize96));
+            Rectangle line = BorderLine(local);
+            float l = line.Left, r = line.Right, t = line.Top, b = line.Bottom;
+            float cx = (l + r) / 2f, cy = (t + b) / 2f;
+            // FrameHandleの順(TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left)
+            PointF[] centers = new PointF[]
+            {
+                new PointF(l, t), new PointF(cx, t), new PointF(r, t), new PointF(r, cy),
+                new PointF(r, b), new PointF(cx, b), new PointF(l, b), new PointF(l, cy)
+            };
+
+            float d = Scaled(HandleSize96);
             FrameHandle sel = selection.SelectedHandle;
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush normal = new SolidBrush(Color.White))
+            using (SolidBrush normal = new SolidBrush(HandleFillColor))
             using (SolidBrush accent = new SolidBrush(AccentColor))
-            using (Pen border = new Pen(Color.FromArgb(150, 60, 60, 60), Math.Max(1f, scale)))
+            using (Pen border = new Pen(HandleBorderColor, Math.Max(1f, scale)))
             {
-                for (int i = 0; i < handles.Length; i++)
+                for (int i = 0; i < centers.Length; i++)
                 {
-                    RectangleF r = ToLocal(handles[i]);
-                    r.Inflate(-0.5f, -0.5f);
+                    RectangleF rc = new RectangleF(centers[i].X - d / 2f, centers[i].Y - d / 2f, d, d);
                     FrameHandle h = (FrameHandle)(i + 1);
-                    g.FillEllipse(OnSelectedEdge(h, sel) ? accent : normal, r);
-                    g.DrawEllipse(border, r);
+                    g.FillEllipse(OnSelectedEdge(h, sel) ? accent : normal, rc);
+                    g.DrawEllipse(border, rc);
                 }
             }
             g.SmoothingMode = SmoothingMode.None;
