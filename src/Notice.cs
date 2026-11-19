@@ -24,20 +24,14 @@ namespace Wakudori
 
     internal sealed class NoticeForm : ThemedForm
     {
-        private readonly NoticeKind kind;
-        private readonly Rectangle dotRect;
-
         public NoticeForm(string heading, string body, NoticeKind kind)
         {
-            this.kind = kind;
             int pad = S(32);
             int width = S(440);
             int inner = width - pad * 2;
 
-            // 上の小さな行: 種類を示す丸と「Wakudori」
-            int dot = S(8);
-            Label app = AddText("Wakudori", Theme.Body(S(14)), Theme.TextTertiary, pad + dot + S(8), pad - S(4), inner);
-            dotRect = new Rectangle(pad, app.Top + (app.Height - dot) / 2, dot, dot);
+            // 上の小さな行: 「Wakudori」. 種類(案内, 注意, エラー)は見出しの文で分かるので, 印は付けない
+            Label app = AddText("Wakudori", Theme.Body(S(14)), Theme.TextTertiary, pad, pad - S(4), inner);
             int y = app.Bottom + S(8);
 
             Label h = AddText(heading, Theme.Heading(S(22)), Theme.Text, pad - S(2), y, inner);
@@ -56,17 +50,6 @@ namespace Wakudori
             Controls.Add(ok);
 
             ClientSize = new Size(width, ok.Bottom + pad);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            Color c = kind == NoticeKind.Error ? Theme.Danger : kind == NoticeKind.Warning ? Theme.Warning : Theme.Accent;
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush b = new SolidBrush(c))
-            {
-                e.Graphics.FillEllipse(b, dotRect);
-            }
         }
 
         // Enter, Esc, スペースで閉じる.
