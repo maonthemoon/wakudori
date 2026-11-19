@@ -17,14 +17,25 @@ namespace Wakudori
         private readonly ThemedButton okButton;
         private string pendingOverwrite; // 上書きの確認を出した名前. 出していなければnull
         private string result;
+        private readonly bool rename;       // trueなら名前を変える画面(上書きはしない)
+        private readonly string currentName; // 名前を変えるときの今の名前
 
         // existingNames: 保存済みの名前. initialName: 最初に入れておく名前(nullでもよい).
         public NameForm(ICollection<string> existingNames, string initialName)
+            : this(existingNames, initialName, false)
         {
+        }
+
+        // 名前を変える(一覧の右クリックから). currentName: 今の名前. existingNames: ほかの範囲の名前(今の名前は含めない)
+        public NameForm(ICollection<string> existingNames, string currentName, bool rename)
+        {
+            this.rename = rename;
+            this.currentName = currentName != null ? currentName : "";
+            string initialName = currentName;
             existing = new HashSet<string>(existingNames != null ? existingNames : new List<string>(), StringComparer.Ordinal);
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
-            Text = "Wakudori - 範囲に名前を付ける";
+            Text = rename ? "Wakudori - 名前を変える" : "Wakudori - 範囲に名前を付ける";
 
             float scale = DeviceDpi / 96f;
             int pad = S(32);
@@ -39,9 +50,11 @@ namespace Wakudori
             Controls.Add(close);
 
             int y = app.Bottom + S(8);
-            Label h = AddText("範囲に名前を付ける", Theme.Heading(S(24)), Theme.Text, pad - S(2), y, inner);
+            Label h = AddText(rename ? "名前を変える" : "範囲に名前を付ける", Theme.Heading(S(24)), Theme.Text, pad - S(2), y, inner);
             y = h.Bottom + S(12);
-            Label body = AddText("今の枠の位置と大きさを, 名前を付けて保存します. 次からは選択画面の上の一覧から選べます.",
+            Label body = AddText(rename
+                ? "「" + this.currentName + "」の名前を変えます. 範囲の位置と大きさは変わりません."
+                : "今の枠の位置と大きさを, 名前を付けて保存します. 次からは選択画面の上の一覧から選べます.",
                 Theme.Body(S(15)), Theme.TextSecondary, pad, y, inner);
             y = body.Bottom + S(24);
 
@@ -58,7 +71,7 @@ namespace Wakudori
             messageLabel.Size = new Size(inner, S(44)); // 2行まで. 文の長さで画面の高さが変わらないようにする
             y = messageLabel.Bottom + S(16);
 
-            okButton = new ThemedButton("保存", ButtonKind.Accent, Theme.BodyStrong(S(15)), scale);
+            okButton = new ThemedButton(rename ? "変える" : "保存", ButtonKind.Accent, Theme.BodyStrong(S(15)), scale);
             okButton.Width = Math.Max(okButton.Width, S(96)); // 「上書き」に変えても幅が変わらないようにする
             okButton.Location = new Point(width - pad - okButton.Width, y);
             okButton.Click += delegate { Confirm(); };
@@ -101,6 +114,11 @@ namespace Wakudori
         // 文字を変えたら, 上書きの確認を最初からやり直す.
         private void OnNameChanged()
         {
+            if (rename)
+            {
+                ShowMessage(DefaultMessage, false);
+                return;
+            }
             if (pendingOverwrite == null) return;
             pendingOverwrite = null;
             okButton.Text = "保存";
@@ -116,7 +134,20 @@ namespace Wakudori
                 ShowMessage("名前を入力してください.", true);
                 return;
             }
-            if (existing.Contains(name) && !string.Equals(pendingOverwrite, name, StringComparison.Ordinal))
+            if (rename)
+            {
+                if (string.Equals(name, currentName, StringComparison.Ordinal))
+                {
+                    Cancel(); // 変わっていないので何もしない
+                    return;
+                }
+                if (existing.Contains(name))
+                {
+                    ShowMessage("「" + name + "」はほかの範囲で使っています. 別の名前にしてください.", true);
+                    return;
+                }
+            }
+            else if (existing.Contains(name) && !string.Equals(pendingOverwrite, name, StringComparison.Ordinal))
             {
                 pendingOverwrite = name;
                 okButton.Text = "上書き";

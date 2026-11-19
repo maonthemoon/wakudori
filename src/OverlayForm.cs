@@ -55,15 +55,25 @@ namespace Wakudori
 
         public event EventHandler CaptureRequested;
         public event EventHandler CancelRequested;
-        public event EventHandler SaveRequested;          // Ctrl+S(A3)
-        public event RegionChosenHandler RegionChosen;    // 一覧の名前をクリックした(A4)
+        public event EventHandler SaveRequested;              // Ctrl+S(A3)
+        public event RegionChosenHandler RegionChosen;        // 一覧の名前を押した, または数字キー(A4)
+        public event RegionChosenHandler RegionHovered;       // 一覧の名前にカーソルが乗った(下見). 離れたらnull
+        public event RegionChosenHandler RegionMenuRequested; // 一覧の名前を右クリックした(名前を変える, 削除)
+        public event EventHandler PreviewCancelRequested;     // 下見をやめて元の枠に戻してほしい(キー操作や枠の操作の前)
 
-        // 保存した範囲の一覧(A4, A7). 一覧を出すモニターのフォームだけが持つ. ほかはnull
+        // 保存した範囲の一覧(A4, A7). 数字キーのため全フォームが持つが, 描くのはshowListのフォームだけ
         private readonly IList<SavedRegion> regions;
-        private List<Rectangle> chipRects;  // 一覧の名前(チップ)の位置. ローカル座標. nullなら作り直す
-        private int hoverChip = -1;
+        private readonly bool showList;
+        private List<int> rowItems;         // 1行に並べる範囲の番号
+        private List<Rectangle> rowRects;   // その位置(ローカル座標). nullなら作り直す
+        private Rectangle moreRect;         // 「+N」のチップ. 入りきるときはEmpty
+        private List<int> menuItems = new List<int>(); // 「+N」で開く一覧の範囲の番号
+        private bool menuOpen;
+        private int menuScroll;             // 一覧の先頭に見えている項目
+        private ListHit hover = ListHit.None;
+        private int hoveredRegion = -1;     // 下見中の範囲の番号(RegionHoveredを出した相手)
 
-        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions)
+        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList)
         {
             this.monitorIndex = monitorIndex;
             this.bounds = bounds;
@@ -81,6 +91,7 @@ namespace Wakudori
             Size = bounds.Size;
 
             this.regions = regions;
+            this.showList = showList;
             selection.Changed += OnSelectionChanged;
         }
 
@@ -123,18 +134,26 @@ namespace Wakudori
             base.WndProc(ref m);
         }
 
-        // 一覧の中身が変わった(Ctrl+Sで保存した)ときに呼ぶ.
+        // 一覧の中身が変わった(保存, 名前の変更, 削除)ときに呼ぶ.
         public void RefreshRegions()
         {
-            chipRects = null;
-            hoverChip = -1;
+            rowRects = null;
+            menuOpen = false;
+            menuScroll = 0;
+            hover = ListHit.None;
+            hoveredRegion = -1;
             Present();
+        }
+
+        private bool HasList
+        {
+            get { return showList && regions != null && regions.Count > 0; }
         }
 
         private void OnSelectionChanged(object sender, EventArgs e)
         {
             // 一覧があるフォームは, 選んだ名前の色が変わるので描き直す.
-            if (regions != null && regions.Count > 0)
+            if (HasList)
             {
                 Present();
                 return;
@@ -207,7 +226,7 @@ namespace Wakudori
                     DrawKnobs(g, local);
                 }
 
-                if (regions != null && regions.Count > 0) DrawRegionList(g);
+                if (HasList) DrawRegionList(g);
 
             }
         }
@@ -292,7 +311,8 @@ namespace Wakudori
         }
 
         // ---- 保存した範囲の一覧(A4, A7) ----
-        // モニターの上部の中央に, 名前をアイボリーのチップで並べる. 入りきらなければ折り返す.
+        // モニターの上部の中央に, 名前をアイボリーのチップで1行だけ並べる(画面を覆いすぎないように).
+        // 入りきらない分は「+N」のチップにまとめ, 押すと縦の一覧が開く. 先頭9個には数字キーの番号を付ける.
         // 今の枠が, 選んだ名前付きの範囲のまま(動かしていない)なら, そのチップをクレイ色にする(D5).
 
         private const int ChipHeight96 = 32;
@@ -300,68 +320,160 @@ namespace Wakudori
         private const int ChipGap96 = 8;
         private const int ChipTop96 = 24;
         private const int ChipFont96 = 14;
+        private const int BadgeSize96 = 18;   // 数字の四角
+        private const int MenuWidth96 = 260;
+        private const int MenuItemHeight96 = 32;
+        private const int MenuMaxItems = 12;  // これより多ければホイールでスクロール
+
+        internal enum ListHitKind { None, Chip, More, MenuItem, Menu }
+
+        internal struct ListHit
+        {
+            public ListHitKind Kind;
+            public int Region; // Chip, MenuItemのとき範囲の番号
+            public static readonly ListHit None = new ListHit();
+            public ListHit(ListHitKind kind, int region) { Kind = kind; Region = region; }
+            public bool SameAs(ListHit o) { return Kind == o.Kind && Region == o.Region; }
+        }
+
+        private int ChipWidth(Graphics g, Font font, int i)
+        {
+            SizeF ts = g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic);
+            int w = (int)Math.Ceiling(ts.Width) + Scaled(ChipPadX96) * 2;
+            if (i < 9) w += Scaled(BadgeSize96) + Scaled(6);
+            return w;
+        }
 
         private void LayoutChips(Graphics g)
         {
-            chipRects = new List<Rectangle>();
-            int h = Scaled(ChipHeight96), pad = Scaled(ChipPadX96), gap = Scaled(ChipGap96);
+            rowItems = new List<int>();
+            rowRects = new List<Rectangle>();
+            menuItems = new List<int>();
+            moreRect = Rectangle.Empty;
+            int h = Scaled(ChipHeight96), gap = Scaled(ChipGap96), top = Scaled(ChipTop96);
             int maxRow = Math.Max(h, bounds.Width - Scaled(64));
-            List<List<Rectangle>> rows = new List<List<Rectangle>>();
-            List<Rectangle> row = new List<Rectangle>();
-            int x = 0, y = Scaled(ChipTop96);
             using (Font font = Theme.Body(ChipFont96 * scale))
             {
+                SizeF more = g.MeasureString("+" + regions.Count, font, PointF.Empty, StringFormat.GenericTypographic);
+                int moreW = (int)Math.Ceiling(more.Width) + Scaled(ChipPadX96) * 2;
+                int x = 0;
                 for (int i = 0; i < regions.Count; i++)
                 {
-                    SizeF ts = g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic);
-                    int w = Math.Min(maxRow, (int)Math.Ceiling(ts.Width) + pad * 2);
-                    if (row.Count > 0 && x + gap + w > maxRow)
+                    int w = Math.Min(maxRow - moreW - gap, ChipWidth(g, font, i));
+                    int need = x + (rowItems.Count > 0 ? gap : 0) + w;
+                    int reserve = i < regions.Count - 1 ? gap + moreW : 0; // 後ろが残るなら「+N」の場所を空けておく
+                    if (menuItems.Count == 0 && need + reserve <= maxRow)
                     {
-                        rows.Add(row);
-                        row = new List<Rectangle>();
-                        x = 0;
-                        y += h + gap;
+                        if (rowItems.Count > 0) x += gap;
+                        rowItems.Add(i);
+                        rowRects.Add(new Rectangle(x, top, w, h));
+                        x += w;
                     }
-                    if (row.Count > 0) x += gap;
-                    row.Add(new Rectangle(x, y, w, h));
-                    x += w;
+                    else
+                    {
+                        menuItems.Add(i);
+                    }
                 }
+                if (menuItems.Count > 0)
+                {
+                    if (rowItems.Count > 0) x += gap;
+                    moreRect = new Rectangle(x, top, moreW, h);
+                    x += moreW;
+                }
+                int offset = (bounds.Width - x) / 2;
+                for (int k = 0; k < rowRects.Count; k++) rowRects[k] = new Rectangle(rowRects[k].X + offset, top, rowRects[k].Width, h);
+                if (!moreRect.IsEmpty) moreRect.X += offset;
             }
-            if (row.Count > 0) rows.Add(row);
-            foreach (List<Rectangle> r in rows)
-            {
-                int width = r[r.Count - 1].Right;
-                int offset = (bounds.Width - width) / 2;
-                foreach (Rectangle c in r) chipRects.Add(new Rectangle(c.X + offset, c.Y, c.Width, c.Height));
-            }
+            if (menuItems.Count == 0) menuOpen = false;
+        }
+
+        // 「+N」で開く一覧の外枠と, 見えている項目の数
+        private Rectangle MenuRect(out int visible)
+        {
+            visible = Math.Min(MenuMaxItems, menuItems.Count);
+            int w = Scaled(MenuWidth96), pad = Scaled(6);
+            int hgt = visible * Scaled(MenuItemHeight96) + pad * 2;
+            int x = Math.Max(Scaled(8), Math.Min(bounds.Width - w - Scaled(8), moreRect.Right - w));
+            return new Rectangle(x, moreRect.Bottom + Scaled(6), w, hgt);
+        }
+
+        private Rectangle MenuItemRect(Rectangle menu, int row)
+        {
+            int pad = Scaled(6);
+            return new Rectangle(menu.X + pad, menu.Y + pad + row * Scaled(MenuItemHeight96), menu.Width - pad * 2, Scaled(MenuItemHeight96));
+        }
+
+        private bool IsActive(int i)
+        {
+            return selection.RegionName != null && selection.RegionName == regions[i].Name;
         }
 
         private void DrawRegionList(Graphics g)
         {
-            if (chipRects == null || chipRects.Count != regions.Count) LayoutChips(g);
+            if (rowRects == null) LayoutChips(g);
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Half;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearTypeは透明度つきの面だと汚くなる
             using (Font font = Theme.Body(ChipFont96 * scale))
-            using (StringFormat fmt = new StringFormat(StringFormat.GenericTypographic))
+            using (Font badgeFont = Theme.BodyStrong(12 * scale))
+            using (StringFormat center = new StringFormat(StringFormat.GenericTypographic))
+            using (StringFormat left = new StringFormat(StringFormat.GenericTypographic))
             {
-                fmt.Alignment = StringAlignment.Center;
-                fmt.LineAlignment = StringAlignment.Center;
-                fmt.Trimming = StringTrimming.EllipsisCharacter;
-                fmt.FormatFlags |= StringFormatFlags.NoWrap;
-                for (int i = 0; i < regions.Count; i++)
+                center.Alignment = StringAlignment.Center;
+                center.LineAlignment = StringAlignment.Center;
+                center.FormatFlags |= StringFormatFlags.NoWrap;
+                center.Trimming = StringTrimming.EllipsisCharacter;
+                left.LineAlignment = StringAlignment.Center;
+                left.FormatFlags |= StringFormatFlags.NoWrap;
+                left.Trimming = StringTrimming.EllipsisCharacter;
+
+                for (int k = 0; k < rowItems.Count; k++)
                 {
-                    Rectangle rc = chipRects[i];
-                    bool active = selection.RegionName != null && selection.RegionName == regions[i].Name;
-                    Color back = active ? Theme.AccentInteractive : (i == hoverChip ? Theme.BgMuted : Theme.Bg);
-                    Color fore = active ? Color.White : Theme.Text;
-                    using (GraphicsPath path = Theme.RoundedRect(rc, rc.Height / 2f))
-                    using (SolidBrush b = new SolidBrush(back))
-                    using (SolidBrush t = new SolidBrush(fore))
+                    int i = rowItems[k];
+                    bool hot = hover.Kind == ListHitKind.Chip && hover.Region == i;
+                    DrawItem(g, rowRects[k], i, font, badgeFont, center, left, hot, true);
+                }
+
+                if (!moreRect.IsEmpty)
+                {
+                    bool hot = hover.Kind == ListHitKind.More || menuOpen;
+                    using (GraphicsPath path = Theme.RoundedRect(moreRect, moreRect.Height / 2f))
+                    using (SolidBrush b = new SolidBrush(hot ? Theme.BgMuted : Color.FromArgb(220, Theme.Bg)))
+                    using (SolidBrush t = new SolidBrush(Theme.Text))
                     {
                         g.FillPath(b, path);
-                        g.DrawString(regions[i].Name ?? "", font, t, rc, fmt);
+                        g.DrawString("+" + menuItems.Count, font, t, moreRect, center);
+                    }
+                }
+
+                if (menuOpen && menuItems.Count > 0)
+                {
+                    int visible;
+                    Rectangle menu = MenuRect(out visible);
+                    using (GraphicsPath path = Theme.RoundedRect(menu, Scaled(10)))
+                    using (SolidBrush b = new SolidBrush(Theme.Bg))
+                    {
+                        g.FillPath(b, path);
+                    }
+                    for (int row = 0; row < visible; row++)
+                    {
+                        int idx = menuScroll + row;
+                        if (idx >= menuItems.Count) break;
+                        int i = menuItems[idx];
+                        bool hot = hover.Kind == ListHitKind.MenuItem && hover.Region == i;
+                        DrawItem(g, MenuItemRect(menu, row), i, font, badgeFont, center, left, hot, false);
+                    }
+                    if (menuItems.Count > visible)
+                    {
+                        // スクロールできることを示す細い棒
+                        int track = menu.Height - Scaled(12);
+                        int barH = Math.Max(Scaled(16), track * visible / menuItems.Count);
+                        int barY = menu.Y + Scaled(6) + (track - barH) * menuScroll / Math.Max(1, menuItems.Count - visible);
+                        using (SolidBrush bar = new SolidBrush(Theme.Border))
+                        {
+                            g.FillRectangle(bar, menu.Right - Scaled(5), barY, Scaled(3), barH);
+                        }
                     }
                 }
             }
@@ -371,21 +483,98 @@ namespace Wakudori
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // pの上にあるチップの番号. なければ-1
-        private int HitChip(Point local)
+        // チップ(pill=true)か, 縦の一覧の項目を1つ描く. 先頭9個には数字の四角を付ける.
+        private void DrawItem(Graphics g, Rectangle rc, int i, Font font, Font badgeFont, StringFormat center, StringFormat left, bool hot, bool pill)
         {
-            if (regions == null || chipRects == null) return -1;
-            for (int i = 0; i < chipRects.Count && i < regions.Count; i++)
+            bool active = IsActive(i);
+            Color back = active ? Theme.AccentInteractive : (hot ? Theme.BgMuted : (pill ? Theme.Bg : Color.Transparent));
+            Color fore = active ? Color.White : Theme.Text;
+            if (back.A > 0)
             {
-                if (chipRects[i].Contains(local)) return i;
+                using (GraphicsPath path = Theme.RoundedRect(rc, pill ? rc.Height / 2f : Scaled(6)))
+                using (SolidBrush b = new SolidBrush(back))
+                {
+                    g.FillPath(b, path);
+                }
             }
-            return -1;
+            int x = rc.X + Scaled(pill ? ChipPadX96 : 10);
+            if (i < 9)
+            {
+                int bs = Scaled(BadgeSize96);
+                Rectangle badge = new Rectangle(x, rc.Y + (rc.Height - bs) / 2, bs, bs);
+                using (GraphicsPath path = Theme.RoundedRect(badge, Scaled(4)))
+                using (SolidBrush b = new SolidBrush(active ? Color.FromArgb(64, 255, 255, 255) : Color.FromArgb(26, Theme.Text)))
+                using (SolidBrush t = new SolidBrush(fore))
+                {
+                    g.FillPath(b, path);
+                    g.DrawString((i + 1).ToString(), badgeFont, t, badge, center);
+                }
+                x += bs + Scaled(6);
+            }
+            using (SolidBrush t = new SolidBrush(fore))
+            {
+                Rectangle textRc = new Rectangle(x, rc.Y, rc.Right - x - Scaled(pill ? ChipPadX96 : 10), rc.Height);
+                g.DrawString(regions[i].Name ?? "", font, t, textRc, left);
+            }
         }
 
-        private void SetHoverChip(int i)
+        private ListHit HitList(Point local)
         {
-            if (hoverChip == i) return;
-            hoverChip = i;
+            if (!HasList || rowRects == null) return ListHit.None;
+            if (menuOpen)
+            {
+                int visible;
+                Rectangle menu = MenuRect(out visible);
+                if (menu.Contains(local))
+                {
+                    for (int row = 0; row < visible; row++)
+                    {
+                        int idx = menuScroll + row;
+                        if (idx < menuItems.Count && MenuItemRect(menu, row).Contains(local)) return new ListHit(ListHitKind.MenuItem, menuItems[idx]);
+                    }
+                    return new ListHit(ListHitKind.Menu, -1);
+                }
+            }
+            for (int k = 0; k < rowRects.Count; k++)
+            {
+                if (rowRects[k].Contains(local)) return new ListHit(ListHitKind.Chip, rowItems[k]);
+            }
+            if (!moreRect.IsEmpty && moreRect.Contains(local)) return new ListHit(ListHitKind.More, -1);
+            return ListHit.None;
+        }
+
+        // カーソルの下の項目が変わったら描き直し, 範囲の名前に乗ったら下見を頼む.
+        private void SetListHover(ListHit h)
+        {
+            if (!hover.SameAs(h))
+            {
+                hover = h;
+                Present();
+            }
+            int region = (h.Kind == ListHitKind.Chip || h.Kind == ListHitKind.MenuItem) ? h.Region : -1;
+            if (region == hoveredRegion) return;
+            hoveredRegion = region;
+            if (RegionHovered != null) RegionHovered(this, region >= 0 ? regions[region] : null);
+        }
+
+        private void CloseMenu()
+        {
+            if (!menuOpen) return;
+            menuOpen = false;
+            Present();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            if (!menuOpen) return;
+            int visible;
+            MenuRect(out visible);
+            int max = Math.Max(0, menuItems.Count - visible);
+            int next = Math.Max(0, Math.Min(max, menuScroll - Math.Sign(e.Delta) * 3));
+            if (next == menuScroll) return;
+            menuScroll = next;
+            SetListHover(HitList(e.Location));
             Present();
         }
 
@@ -431,15 +620,37 @@ namespace Wakudori
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (e.Button != MouseButtons.Left) return;
-
-            // 一覧の名前をクリックしたら, その範囲を枠にセットする(A4). 枠の操作より優先する.
-            int chip = HitChip(e.Location);
-            if (chip >= 0)
+            // 一覧の上の操作は, 枠の操作より優先する.
+            ListHit lh = HitList(e.Location);
+            if (e.Button == MouseButtons.Right)
             {
-                if (RegionChosen != null) RegionChosen(this, regions[chip]);
+                // 右クリック: 名前を変える, 削除(A5を変更)
+                if ((lh.Kind == ListHitKind.Chip || lh.Kind == ListHitKind.MenuItem) && RegionMenuRequested != null)
+                {
+                    RegionMenuRequested(this, regions[lh.Region]);
+                }
                 return;
             }
+            if (e.Button != MouseButtons.Left) return;
+            if (lh.Kind == ListHitKind.Chip || lh.Kind == ListHitKind.MenuItem)
+            {
+                // 名前を押したら, その範囲に決める(A4). 下見で動いていた枠がそのまま残る.
+                menuOpen = false;
+                hoveredRegion = -1;
+                if (RegionChosen != null) RegionChosen(this, regions[lh.Region]);
+                Present();
+                return;
+            }
+            if (lh.Kind == ListHitKind.More)
+            {
+                menuOpen = !menuOpen;
+                menuScroll = 0;
+                Present();
+                return;
+            }
+            if (lh.Kind == ListHitKind.Menu) return;
+            CloseMenu();
+            if (PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
 
             Point p = ToVirtual(e.Location);
             Rectangle frame = selection.Frame;
@@ -494,12 +705,13 @@ namespace Wakudori
             }
             else
             {
-                int chip = HitChip(e.Location);
-                SetHoverChip(chip);
-                if (chip >= 0)
+                ListHit lh = HitList(e.Location);
+                SetListHover(lh);
+                if (lh.Kind != ListHitKind.None)
                 {
                     selection.HoverHandle = FrameHandle.None;
-                    if (Cursor != Cursors.Hand) Cursor = Cursors.Hand;
+                    Cursor c = lh.Kind == ListHitKind.Menu ? Cursors.Default : Cursors.Hand;
+                    if (Cursor != c) Cursor = c;
                     return;
                 }
                 UpdateCursor(p);
@@ -522,7 +734,7 @@ namespace Wakudori
         {
             base.OnMouseLeave(e);
             if (dragMode == DragMode.None) selection.HoverHandle = FrameHandle.None;
-            SetHoverChip(-1);
+            SetListHover(ListHit.None);
         }
 
         private void UpdateCursor(Point p)
@@ -559,6 +771,29 @@ namespace Wakudori
             Keys key = keyData & Keys.KeyCode;
             bool ctrl = (keyData & Keys.Control) == Keys.Control;
             int step = ctrl ? 10 : 1;
+
+            // 数字キー1〜9: 一覧の先頭9個を呼び出す(A4)
+            if ((keyData >= Keys.D1 && keyData <= Keys.D9) || (keyData >= Keys.NumPad1 && keyData <= Keys.NumPad9))
+            {
+                int n = keyData >= Keys.NumPad1 ? keyData - Keys.NumPad1 : keyData - Keys.D1;
+                if (dragMode == DragMode.None && regions != null && n < regions.Count && RegionChosen != null)
+                {
+                    menuOpen = false;
+                    hoveredRegion = -1;
+                    RegionChosen(this, regions[n]);
+                    Present();
+                }
+                return true;
+            }
+
+            // Enterは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
+            if (key != Keys.Enter && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
+
+            if (keyData == Keys.Escape && menuOpen)
+            {
+                CloseMenu(); // まず「+N」の一覧を閉じる
+                return true;
+            }
 
             if (keyData == (Keys.Control | Keys.S))
             {

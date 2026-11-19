@@ -85,6 +85,11 @@ namespace Wakudori
         private readonly Size defaultFrameSize;
         private bool capturing;
         private bool closed;
+        // 一覧の名前に乗せたときの下見(枠ごと動かす). 下見の前の枠と名前を覚えておき, 離れたら戻す
+        private bool previewing;
+        private Rectangle frameBeforePreview;
+        private string nameBeforePreview;
+        private ContextMenuStrip regionMenu;
 
         public event EventHandler Finished;
 
@@ -115,11 +120,14 @@ namespace Wakudori
             {
                 // 保存した範囲の一覧は, 開いたときにマウスカーソルがあるモニターにだけ出す(A7).
                 bool listHere = monitors[i].Contains(cursor);
-                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, listHere ? store.Regions : null);
+                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere);
                 f.CaptureRequested += OnCaptureRequested;
                 f.CancelRequested += OnCancelRequested;
                 f.SaveRequested += OnSaveRequested;
                 f.RegionChosen += OnRegionChosen;
+                f.RegionHovered += OnRegionHovered;
+                f.RegionMenuRequested += OnRegionMenuRequested;
+                f.PreviewCancelRequested += delegate { EndPreview(); };
                 forms.Add(f);
             }
 
@@ -158,20 +166,134 @@ namespace Wakudori
         private void OnRegionChosen(object sender, SavedRegion region)
         {
             if (capturing || closed) return;
+            previewing = false; // 下見していた範囲に決める
             Rectangle r = Selection.InitialFrame(monitors, region.Bounds, Cursor.Position, defaultFrameSize);
             selection.SelectedHandle = FrameHandle.None;
             selection.SetNamedFrame(r, region.Name);
+        }
+
+        // 一覧の名前にカーソルが乗った: 枠ごとその範囲へ動かして見せる. 離れたら(region == null)元の枠に戻す.
+        // 下見中にEnterを押すと, 見えている範囲を撮る.
+        private void OnRegionHovered(object sender, SavedRegion region)
+        {
+            if (capturing || closed) return;
+            if (region == null)
+            {
+                EndPreview();
+                return;
+            }
+            if (!previewing)
+            {
+                frameBeforePreview = selection.Frame;
+                nameBeforePreview = selection.RegionName;
+                previewing = true;
+            }
+            Rectangle r = Selection.InitialFrame(monitors, region.Bounds, Cursor.Position, defaultFrameSize);
+            selection.SetNamedFrame(r, region.Name);
+        }
+
+        private void EndPreview()
+        {
+            if (!previewing || capturing || closed) return;
+            previewing = false;
+            selection.SetNamedFrame(frameBeforePreview, nameBeforePreview);
+        }
+
+        // 一覧の名前を右クリック: 名前を変える, 削除(A5を変更. regions.jsonの手での編集もこれまでどおりできる).
+        private void OnRegionMenuRequested(object sender, SavedRegion region)
+        {
+            if (capturing || closed) return;
+            EndPreview();
+            if (regionMenu == null)
+            {
+                regionMenu = new ContextMenuStrip();
+                ToolStripProfessionalRenderer renderer = new ToolStripProfessionalRenderer(new Theme.MenuColors());
+                renderer.RoundedEdges = false;
+                regionMenu.Renderer = renderer;
+                regionMenu.BackColor = Theme.Bg;
+                regionMenu.ForeColor = Theme.Text;
+            }
+            regionMenu.Items.Clear();
+            Form owner = (Form)sender;
+            regionMenu.Items.Add(new ToolStripMenuItem("名前を変える", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { RenameRegion(owner, region); }); }));
+            regionMenu.Items.Add(new ToolStripMenuItem("削除", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { DeleteRegion(owner, region); }); }));
+            regionMenu.Show(Cursor.Position);
+        }
+
+        private void RenameRegion(Form owner, SavedRegion region)
+        {
+            if (capturing || closed || !store.Regions.Contains(region)) return;
+            if (!CheckCanSave()) return;
+            List<string> others = new List<string>();
+            foreach (SavedRegion r in store.Regions) if (r != region) others.Add(r.Name);
+            string newName;
+            using (NameForm form = new NameForm(others, region.Name, true))
+            {
+                if (form.ShowDialog(owner) != DialogResult.OK) { owner.Activate(); return; }
+                newName = form.ResultName;
+            }
+            string oldName = region.Name;
+            region.Name = newName;
+            if (!TrySaveStore())
+            {
+                region.Name = oldName;
+            }
+            else if (selection.RegionName == oldName)
+            {
+                selection.NameCurrent(newName); // 呼び出し中の範囲なら, 撮ったときのファイル名も新しい名前にする
+            }
+            foreach (OverlayForm f in forms) f.RefreshRegions();
+            owner.Activate();
+        }
+
+        private void DeleteRegion(Form owner, SavedRegion region)
+        {
+            if (capturing || closed || !store.Regions.Contains(region)) return;
+            if (!CheckCanSave()) return;
+            bool ok = Notice.Confirm(owner, "「" + region.Name + "」を削除しますか?",
+                "保存した範囲の一覧から消します. これまでに撮った画像は消えません.", "削除");
+            if (!ok) { owner.Activate(); return; }
+            int index = store.Regions.IndexOf(region);
+            store.Regions.RemoveAt(index);
+            if (!TrySaveStore())
+            {
+                store.Regions.Insert(index, region);
+            }
+            else if (selection.RegionName == region.Name)
+            {
+                selection.NameCurrent(null); // 枠はそのまま, 名前のない範囲にする
+            }
+            foreach (OverlayForm f in forms) f.RefreshRegions();
+            owner.Activate();
+        }
+
+        private bool CheckCanSave()
+        {
+            if (store.CanSave) return true;
+            Notice.Show("範囲を保存できません", "範囲の保存ファイル(regions.json)を読めなかったので, 上書きしないようにしています. ファイルを直してから, 選択画面を開き直してください.\r\n\r\n" + RegionStore.DefaultPath, NoticeKind.Warning);
+            return false;
+        }
+
+        private bool TrySaveStore()
+        {
+            try
+            {
+                store.Save(RegionStore.DefaultPath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Notice.Show("範囲を保存できませんでした", ex.Message, NoticeKind.Warning);
+                return false;
+            }
         }
 
         // Ctrl+S: 今の枠に名前を付けて保存する(A3). 同じ名前があれば, 名前の画面で上書きを確かめる(7.1).
         private void OnSaveRequested(object sender, EventArgs e)
         {
             if (capturing || closed) return;
-            if (!store.CanSave)
-            {
-                Notice.Show("範囲を保存できません", "範囲の保存ファイル(regions.json)を読めなかったので, 上書きしないようにしています. ファイルを直してから, 選択画面を開き直してください.\r\n\r\n" + RegionStore.DefaultPath, NoticeKind.Warning);
-                return;
-            }
+            EndPreview();
+            if (!CheckCanSave()) return;
 
             List<string> names = new List<string>();
             foreach (SavedRegion r in store.Regions) names.Add(r.Name);
@@ -198,16 +320,11 @@ namespace Wakudori
                 store.Regions.Add(added);
             }
 
-            try
-            {
-                store.Save(RegionStore.DefaultPath);
-            }
-            catch (Exception ex)
+            if (!TrySaveStore())
             {
                 // 保存できなかったら, 一覧も元に戻す.
                 if (existing != null) existing.Bounds = oldBounds;
                 else store.Regions.RemoveAt(store.Regions.Count - 1);
-                Notice.Show("範囲を保存できませんでした", ex.Message, NoticeKind.Warning);
                 return;
             }
 
@@ -284,6 +401,11 @@ namespace Wakudori
                 f.Dispose();
             }
             forms.Clear();
+            if (regionMenu != null)
+            {
+                regionMenu.Dispose();
+                regionMenu = null;
+            }
             EventHandler h = Finished;
             if (h != null) h(this, EventArgs.Empty);
         }
