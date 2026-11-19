@@ -151,6 +151,30 @@ internal static class Program
             h.HoverHandle = FrameHandle.None;
             Check(h.HighlightHandle == FrameHandle.Left && changes == 3, "Hover cleared back to selected");
         }
+        {
+            Selection n = new Selection(new Rectangle[] { new Rectangle(0, 0, 1000, 800) }, new Rectangle(100, 100, 200, 100));
+            Check(n.RegionName == null, "RegionName initially null");
+            n.SetNamedFrame(new Rectangle(10, 20, 300, 200), "会議");
+            Check(n.RegionName == "会議" && n.Frame == new Rectangle(10, 20, 300, 200), "SetNamedFrame sets frame and name");
+            n.SetNamedFrame(new Rectangle(900, 700, 300, 200), "はみ出し");
+            Check(n.Frame == new Rectangle(700, 600, 300, 200) && n.RegionName == "はみ出し", "SetNamedFrame fits into monitor and keeps name");
+            n.MoveBy(-1, 0);
+            Check(n.RegionName == null, "MoveBy clears name (D5)");
+            n.SetNamedFrame(new Rectangle(10, 20, 300, 200), "会議");
+            n.MoveEdges(FrameHandle.Right, -1, 0);
+            Check(n.RegionName == null, "MoveEdges clears name (D5)");
+            n.SetNamedFrame(new Rectangle(0, 20, 300, 200), "会議");
+            n.MoveBy(-50, 0); // 端で止まって動かない
+            Check(n.RegionName == "会議", "no-op move keeps name");
+            n.SelectedHandle = FrameHandle.Top; n.HoverHandle = FrameHandle.Left;
+            Check(n.RegionName == "会議", "selection/hover keeps name");
+            n.NameCurrent("新しい名前");
+            Check(n.RegionName == "新しい名前", "NameCurrent sets name");
+            n.MoveTo(new Point(0, 20), new Point(50, 50));
+            Check(n.RegionName == "新しい名前", "MoveTo to same place keeps name");
+            n.MoveTo(new Point(1, 20), new Point(50, 50));
+            Check(n.RegionName == null, "MoveTo clears name");
+        }
         Rectangle fr = new Rectangle(100, 100, 200, 100);
         Rectangle[] hr = Selection.HandleRects(fr, 10);
         Check(hr.Length == 8, "HandleRects count");

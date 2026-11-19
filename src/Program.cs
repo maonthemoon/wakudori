@@ -81,6 +81,8 @@ namespace Wakudori
         private readonly RegionStore store;
         private readonly List<OverlayForm> forms = new List<OverlayForm>();
         private readonly Selection selection;
+        private readonly Rectangle[] monitors;
+        private readonly Size defaultFrameSize;
         private bool capturing;
         private bool closed;
 
@@ -89,9 +91,10 @@ namespace Wakudori
         public CaptureSession(string saveDir, Size defaultFrameSize)
         {
             this.saveDir = saveDir;
+            this.defaultFrameSize = defaultFrameSize;
 
             Screen[] screens = Screen.AllScreens;
-            Rectangle[] monitors = new Rectangle[screens.Length];
+            monitors = new Rectangle[screens.Length];
             for (int i = 0; i < screens.Length; i++) monitors[i] = screens[i].Bounds;
 
             // 前回の範囲(A2)を読む. 開くたびに読み直す(A5). 読めないときは, 前回の範囲なしで開く(7.1).
@@ -110,9 +113,13 @@ namespace Wakudori
 
             for (int i = 0; i < screens.Length; i++)
             {
-                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection);
+                // 保存した範囲の一覧は, 開いたときにマウスカーソルがあるモニターにだけ出す(A7).
+                bool listHere = monitors[i].Contains(cursor);
+                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, listHere ? store.Regions : null);
                 f.CaptureRequested += OnCaptureRequested;
                 f.CancelRequested += OnCancelRequested;
+                f.SaveRequested += OnSaveRequested;
+                f.RegionChosen += OnRegionChosen;
                 forms.Add(f);
             }
 
@@ -146,12 +153,76 @@ namespace Wakudori
             ((Control)sender).BeginInvoke((MethodInvoker)CloseAll);
         }
 
+        // 一覧の名前をクリックした: その範囲を枠にセットする(A4).
+        // 画面の外になっていれば, カーソルのモニターの中央に同じ大きさで出し直す(C7).
+        private void OnRegionChosen(object sender, SavedRegion region)
+        {
+            if (capturing || closed) return;
+            Rectangle r = Selection.InitialFrame(monitors, region.Bounds, Cursor.Position, defaultFrameSize);
+            selection.SelectedHandle = FrameHandle.None;
+            selection.SetNamedFrame(r, region.Name);
+        }
+
+        // Ctrl+S: 今の枠に名前を付けて保存する(A3). 同じ名前があれば, 名前の画面で上書きを確かめる(7.1).
+        private void OnSaveRequested(object sender, EventArgs e)
+        {
+            if (capturing || closed) return;
+            if (!store.CanSave)
+            {
+                Notice.Show("範囲を保存できません", "範囲の保存ファイル(regions.json)を読めなかったので, 上書きしないようにしています. ファイルを直してから, 選択画面を開き直してください.\r\n\r\n" + RegionStore.DefaultPath, NoticeKind.Warning);
+                return;
+            }
+
+            List<string> names = new List<string>();
+            foreach (SavedRegion r in store.Regions) names.Add(r.Name);
+            string name;
+            using (NameForm form = new NameForm(names, selection.RegionName))
+            {
+                if (form.ShowDialog((IWin32Window)sender) != DialogResult.OK) return;
+                name = form.ResultName;
+            }
+
+            Rectangle frame = selection.Frame;
+            SavedRegion existing = null;
+            foreach (SavedRegion r in store.Regions)
+            {
+                if (r.Name == name) { existing = r; break; }
+            }
+            Rectangle oldBounds = existing != null ? existing.Bounds : Rectangle.Empty;
+            if (existing != null) existing.Bounds = frame; // 上書きしても一覧の並び順は変えない
+            else
+            {
+                SavedRegion added = new SavedRegion();
+                added.Name = name;
+                added.Bounds = frame;
+                store.Regions.Add(added);
+            }
+
+            try
+            {
+                store.Save(RegionStore.DefaultPath);
+            }
+            catch (Exception ex)
+            {
+                // 保存できなかったら, 一覧も元に戻す.
+                if (existing != null) existing.Bounds = oldBounds;
+                else store.Regions.RemoveAt(store.Regions.Count - 1);
+                Notice.Show("範囲を保存できませんでした", ex.Message, NoticeKind.Warning);
+                return;
+            }
+
+            selection.NameCurrent(name); // そのまま撮れば, ファイル名に名前が付く(D2)
+            foreach (OverlayForm f in forms) f.RefreshRegions();
+            ((Form)sender).Activate();
+        }
+
         private void OnCaptureRequested(object sender, EventArgs e)
         {
             if (capturing || closed) return;
             capturing = true;
 
             Rectangle frame = selection.Frame;
+            string name = selection.RegionName; // 名前付きの範囲を動かさずに撮るときだけ名前がある(D5)
 
             // 選択画面を消してから撮る(B7: Enterを押した時点の画面). 消えた部分が描き直されるのを少し待つ.
             foreach (OverlayForm f in forms) f.Hide();
@@ -163,7 +234,7 @@ namespace Wakudori
                 timer.Dispose();
                 try
                 {
-                    Capture(frame);
+                    Capture(frame, name);
                 }
                 catch (Exception ex)
                 {
@@ -174,15 +245,15 @@ namespace Wakudori
             timer.Start();
         }
 
-        private void Capture(Rectangle frame)
+        private void Capture(Rectangle frame, string regionName)
         {
             DateTime now = DateTime.Now;
             using (Bitmap bmp = CaptureOutput.CaptureScreen(frame))
             {
                 // D1: クリップボードとファイルの両方に出す. D4: 通知は出さない.
-                // 名前付きの範囲(8章の5)はまだないので, ファイル名はscreenshot_...になる(D2).
+                // ファイル名は<範囲名>_..., 名前がなければscreenshot_...(D2, D5).
                 CaptureOutput.CopyToClipboard(bmp);
-                CaptureOutput.SavePng(bmp, saveDir, null, now);
+                CaptureOutput.SavePng(bmp, saveDir, regionName, now);
             }
             SaveLast(frame);
         }

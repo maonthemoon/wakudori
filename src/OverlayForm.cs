@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -7,6 +8,8 @@ using System.Windows.Forms;
 
 namespace Wakudori
 {
+    internal delegate void RegionChosenHandler(object sender, SavedRegion region);
+
     // 1つのモニターを覆う選択画面.
     // 異なるDPIのモニターをまたぐ1枚のウィンドウはずれやすいので, モニターごとに1枚ずつ作る.
     // 枠(Selection)は全フォームで共有し, 枠が変わったら関係するフォームだけ描き直す.
@@ -52,8 +55,15 @@ namespace Wakudori
 
         public event EventHandler CaptureRequested;
         public event EventHandler CancelRequested;
+        public event EventHandler SaveRequested;          // Ctrl+S(A3)
+        public event RegionChosenHandler RegionChosen;    // 一覧の名前をクリックした(A4)
 
-        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection)
+        // 保存した範囲の一覧(A4, A7). 一覧を出すモニターのフォームだけが持つ. ほかはnull
+        private readonly IList<SavedRegion> regions;
+        private List<Rectangle> chipRects;  // 一覧の名前(チップ)の位置. ローカル座標. nullなら作り直す
+        private int hoverChip = -1;
+
+        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions)
         {
             this.monitorIndex = monitorIndex;
             this.bounds = bounds;
@@ -70,6 +80,7 @@ namespace Wakudori
             Location = bounds.Location;
             Size = bounds.Size;
 
+            this.regions = regions;
             selection.Changed += OnSelectionChanged;
         }
 
@@ -112,8 +123,22 @@ namespace Wakudori
             base.WndProc(ref m);
         }
 
+        // 一覧の中身が変わった(Ctrl+Sで保存した)ときに呼ぶ.
+        public void RefreshRegions()
+        {
+            chipRects = null;
+            hoverChip = -1;
+            Present();
+        }
+
         private void OnSelectionChanged(object sender, EventArgs e)
         {
+            // 一覧があるフォームは, 選んだ名前の色が変わるので描き直す.
+            if (regions != null && regions.Count > 0)
+            {
+                Present();
+                return;
+            }
             // 枠がこのモニターにある, または前回あった(消す必要がある)ときだけ描き直す.
             bool visible = selection.Frame.IntersectsWith(bounds);
             if (visible || frameWasVisible) Present();
@@ -181,6 +206,8 @@ namespace Wakudori
                     DrawBorder(g, local);
                     DrawKnobs(g, local);
                 }
+
+                if (regions != null && regions.Count > 0) DrawRegionList(g);
 
             }
         }
@@ -264,6 +291,104 @@ namespace Wakudori
             }
         }
 
+        // ---- 保存した範囲の一覧(A4, A7) ----
+        // モニターの上部の中央に, 名前をアイボリーのチップで並べる. 入りきらなければ折り返す.
+        // 今の枠が, 選んだ名前付きの範囲のまま(動かしていない)なら, そのチップをクレイ色にする(D5).
+
+        private const int ChipHeight96 = 32;
+        private const int ChipPadX96 = 14;
+        private const int ChipGap96 = 8;
+        private const int ChipTop96 = 24;
+        private const int ChipFont96 = 14;
+
+        private void LayoutChips(Graphics g)
+        {
+            chipRects = new List<Rectangle>();
+            int h = Scaled(ChipHeight96), pad = Scaled(ChipPadX96), gap = Scaled(ChipGap96);
+            int maxRow = Math.Max(h, bounds.Width - Scaled(64));
+            List<List<Rectangle>> rows = new List<List<Rectangle>>();
+            List<Rectangle> row = new List<Rectangle>();
+            int x = 0, y = Scaled(ChipTop96);
+            using (Font font = Theme.Body(ChipFont96 * scale))
+            {
+                for (int i = 0; i < regions.Count; i++)
+                {
+                    SizeF ts = g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic);
+                    int w = Math.Min(maxRow, (int)Math.Ceiling(ts.Width) + pad * 2);
+                    if (row.Count > 0 && x + gap + w > maxRow)
+                    {
+                        rows.Add(row);
+                        row = new List<Rectangle>();
+                        x = 0;
+                        y += h + gap;
+                    }
+                    if (row.Count > 0) x += gap;
+                    row.Add(new Rectangle(x, y, w, h));
+                    x += w;
+                }
+            }
+            if (row.Count > 0) rows.Add(row);
+            foreach (List<Rectangle> r in rows)
+            {
+                int width = r[r.Count - 1].Right;
+                int offset = (bounds.Width - width) / 2;
+                foreach (Rectangle c in r) chipRects.Add(new Rectangle(c.X + offset, c.Y, c.Width, c.Height));
+            }
+        }
+
+        private void DrawRegionList(Graphics g)
+        {
+            if (chipRects == null || chipRects.Count != regions.Count) LayoutChips(g);
+            g.CompositingMode = CompositingMode.SourceOver;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearTypeは透明度つきの面だと汚くなる
+            using (Font font = Theme.Body(ChipFont96 * scale))
+            using (StringFormat fmt = new StringFormat(StringFormat.GenericTypographic))
+            {
+                fmt.Alignment = StringAlignment.Center;
+                fmt.LineAlignment = StringAlignment.Center;
+                fmt.Trimming = StringTrimming.EllipsisCharacter;
+                fmt.FormatFlags |= StringFormatFlags.NoWrap;
+                for (int i = 0; i < regions.Count; i++)
+                {
+                    Rectangle rc = chipRects[i];
+                    bool active = selection.RegionName != null && selection.RegionName == regions[i].Name;
+                    Color back = active ? Theme.AccentInteractive : (i == hoverChip ? Theme.BgMuted : Theme.Bg);
+                    Color fore = active ? Color.White : Theme.Text;
+                    using (GraphicsPath path = Theme.RoundedRect(rc, rc.Height / 2f))
+                    using (SolidBrush b = new SolidBrush(back))
+                    using (SolidBrush t = new SolidBrush(fore))
+                    {
+                        g.FillPath(b, path);
+                        g.DrawString(regions[i].Name ?? "", font, t, rc, fmt);
+                    }
+                }
+            }
+            g.TextRenderingHint = TextRenderingHint.SystemDefault;
+            g.PixelOffsetMode = PixelOffsetMode.None;
+            g.SmoothingMode = SmoothingMode.None;
+            g.CompositingMode = CompositingMode.SourceCopy;
+        }
+
+        // pの上にあるチップの番号. なければ-1
+        private int HitChip(Point local)
+        {
+            if (regions == null || chipRects == null) return -1;
+            for (int i = 0; i < chipRects.Count && i < regions.Count; i++)
+            {
+                if (chipRects[i].Contains(local)) return i;
+            }
+            return -1;
+        }
+
+        private void SetHoverChip(int i)
+        {
+            if (hoverChip == i) return;
+            hoverChip = i;
+            Present();
+        }
+
         private void Present()
         {
             if (surface == null || !IsHandleCreated) return;
@@ -307,6 +432,15 @@ namespace Wakudori
         {
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left) return;
+
+            // 一覧の名前をクリックしたら, その範囲を枠にセットする(A4). 枠の操作より優先する.
+            int chip = HitChip(e.Location);
+            if (chip >= 0)
+            {
+                if (RegionChosen != null) RegionChosen(this, regions[chip]);
+                return;
+            }
+
             Point p = ToVirtual(e.Location);
             Rectangle frame = selection.Frame;
 
@@ -360,6 +494,14 @@ namespace Wakudori
             }
             else
             {
+                int chip = HitChip(e.Location);
+                SetHoverChip(chip);
+                if (chip >= 0)
+                {
+                    selection.HoverHandle = FrameHandle.None;
+                    if (Cursor != Cursors.Hand) Cursor = Cursors.Hand;
+                    return;
+                }
                 UpdateCursor(p);
             }
         }
@@ -380,6 +522,7 @@ namespace Wakudori
         {
             base.OnMouseLeave(e);
             if (dragMode == DragMode.None) selection.HoverHandle = FrameHandle.None;
+            SetHoverChip(-1);
         }
 
         private void UpdateCursor(Point p)
@@ -416,6 +559,13 @@ namespace Wakudori
             Keys key = keyData & Keys.KeyCode;
             bool ctrl = (keyData & Keys.Control) == Keys.Control;
             int step = ctrl ? 10 : 1;
+
+            if (keyData == (Keys.Control | Keys.S))
+            {
+                // 今の枠に名前を付けて保存する(A3).
+                if (dragMode == DragMode.None && SaveRequested != null) SaveRequested(this, EventArgs.Empty);
+                return true;
+            }
 
             switch (key)
             {

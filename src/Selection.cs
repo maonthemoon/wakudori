@@ -15,6 +15,7 @@ namespace Wakudori
         private Rectangle frame;
         private FrameHandle selectedHandle;
         private FrameHandle hoverHandle;
+        private string regionName;
 
         public event EventHandler Changed;
 
@@ -54,6 +55,31 @@ namespace Wakudori
         public FrameHandle HighlightHandle
         {
             get { return hoverHandle != FrameHandle.None ? hoverHandle : selectedHandle; }
+        }
+
+        // 名前付きの範囲を一覧から選び, まだ枠を動かしていないときの名前. それ以外はnull.
+        // 枠が少しでも変わったらnullに戻る(D5: 調整した範囲は名前のない範囲として撮る).
+        public string RegionName
+        {
+            get { return regionName; }
+        }
+
+        // 名前付きの範囲を枠にセットする. 中心に最も近いモニターに収める
+        public void SetNamedFrame(Rectangle r, string name)
+        {
+            Rectangle fitted = Fit(r, NearestMonitor(monitors, Center(r)));
+            if (frame == fitted && regionName == name) return;
+            frame = fitted;
+            regionName = name;
+            RaiseChanged();
+        }
+
+        // 今の枠に名前を付けた(Ctrl+Sで保存した)ときに呼ぶ. 枠は動かさない
+        public void NameCurrent(string name)
+        {
+            if (regionName == name) return;
+            regionName = name;
+            RaiseChanged();
         }
 
         // 枠の中心があるモニター(なければ最も近いモニター)
@@ -221,6 +247,7 @@ namespace Wakudori
         {
             if (frame == r) return;
             frame = r;
+            regionName = null; // 動かしたら名前のない範囲(D5)
             RaiseChanged();
         }
 
