@@ -10,8 +10,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+Mono:wght@400;700&display=swap">
   <style>
 /* =====================================================================
-   Anthropic風デザイントークン
-   - 色・サイズ・余白: anthropic.com の公開CSSより（research/notes.md）
+   デザイントークン
    - 書体・行間・最小サイズ: デジタル庁デザインシステム（DADS）準拠
    読み込み:
    <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,10 +46,10 @@
 
   /* ---------- プリミティブ: ブランド系アクセント ---------- */
   --clay: #d97757;
-  --clay-interactive: #c6613f;     /* Anthropic原値。白文字とのコントラスト4.05のため大きい面・装飾向け */
+  --clay-interactive: #c6613f;     /* 白文字とのコントラスト4.05のため大きい面・装飾向け */
   --clay-button: #b85a39;          /* 白文字で4.61（AA）を満たすボタン用に補正 */
   --clay-deep: #a9472a;         /* 白背景上の小さい文字用（AA確保のため追加） */
-  --clay-light: #d4a27f;        /* Claude Docsのダーク時primary-light. 暗い背景上の現在地・リンク下線 */
+  --clay-light: #d4a27f;        /* 暗い背景上の現在地・リンク下線 */
   --oat: #e3dacc;
   --olive: #788c5d;
   --sky: #6a9bcc;
@@ -89,7 +88,7 @@
   --link: var(--gray-950);
   --link-underline: var(--clay);
 
-  /* ---------- ドキュメント(Claude Docsの配色ロール. research/notes.md 7章) ----------
+  /* ---------- ドキュメントの配色 ----------
      現在地の色はライトでほぼ黒, ダークでクレイ(#d4a27f). 罫線は文字色の10%. */
   --docs-primary: var(--text);        /* 現在地・タブ下線・リンク下線・eyebrow */
   --text-body: var(--text-secondary); /* ドキュメント本文 */
@@ -120,7 +119,7 @@
   /* ---------- 書体（DADS） ---------- */
   --font-sans: "Noto Sans JP", system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
   --font-mono: "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  /* 見出しは明朝（Anthropic の見出しセリフに相当）。本文・UI は DADS どおりゴシック */
+  /* 見出しは明朝. 本文・UIはDADSどおりゴシック */
   --font-serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --font-heading: var(--font-serif);
   --weight-heading: 700;
@@ -130,7 +129,7 @@
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* ---------- 文字サイズ（Anthropic スケール / モバイル基準） ---------- */
+  /* ---------- 文字サイズ(モバイル基準) ---------- */
   --fs-display-1: 42px;
   --fs-display-2: 36px;
   --fs-h1: 32px;   /* headline-1 */
@@ -144,7 +143,7 @@
   --fs-body-sm: 16px; /* DADS 最小基準 */
   --fs-caption: 14px; /* caption（DADS例外サイズ・最小） */
   --fs-mono: 15px;
-  /* ドキュメント(Claude Docsの実測値) */
+  /* ドキュメント */
   --fs-docs-title: 30px;  /* h1. 768px以上で36px */
   --fs-docs-h2: 24px;
   --fs-docs-h3: 20px;
@@ -202,7 +201,7 @@
   --docs-max: 1440px;
   --header-h: 64px;     /* ドキュメントの2段ヘッダーでは112px(components.cssで切替) */
   --tabs-h: 48px;
-  --cell-min: 150px;    /* 表のセルの最小幅(Claude Docsと同じ). 収まらない表は横スクロール */
+  --cell-min: 150px;    /* 表のセルの最小幅. 収まらない表は横スクロール */
 
   /* ---------- 形状 ---------- */
   --radius-xs: 4px;
@@ -226,7 +225,7 @@
   --weight-heading: 700;
 }
 
-/* ---------- レスポンシブ（Anthropic: 768 / 1024） ---------- */
+/* ---------- レスポンシブ(768 / 1024) ---------- */
 @media (min-width: 768px) {
   :root {
     --fs-display-1: 58px;
@@ -322,7 +321,7 @@
 }
 
 /* =====================================================================
-   Anthropic風コンポーネント（tokens.css の後に読み込む）
+   コンポーネント(デザイントークンの後に読み込む)
    クラス接頭辞なし・素のHTML要素にも基本スタイルを当てる
    ===================================================================== */
 
@@ -341,7 +340,7 @@ body {
   font-feature-settings: "palt" 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* 折り返し: anthropic.comと同じbreak-word. anywhereは最小幅を1文字まで縮めるため,
+  /* 折り返し: break-word. anywhereは最小幅を1文字まで縮めるため,
      flex/gridのカードや表のセルで「/etc/zprofil|e」のように単語が折れる.
      break-wordは単語幅を最小幅として保ち, 箱からはみ出すときだけ折る. */
   overflow-wrap: break-word;
@@ -483,7 +482,7 @@ small, .caption { font-size: var(--fs-caption); line-height: var(--lh-ui); color
 .card__footer { margin-top: auto; padding-top: var(--space-8); }
 
 /* ---------- 手順・順序(番号付きカード) ----------
-   順序は矢印ではなく番号で示す(Claude DocsのStepsと同じ考え方). 折り返しても矢印が行末に残らない */
+   順序は矢印ではなく番号で示す. 折り返しても矢印が行末に残らない */
 .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; display: flex; flex-wrap: wrap; gap: var(--gap-sm); }
 /* flexの子は中身(単語・<code>)の幅より縮まないので, 入らなければ折り返す. gridの固定幅だと途中で折れる */
 .steps > li { counter-increment: step; flex: 1 1 var(--min, 200px); }
@@ -522,7 +521,7 @@ small, .caption { font-size: var(--fs-caption); line-height: var(--lh-ui); color
 .table-wrap > table { min-width: 520px; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border-faint); border-radius: var(--radius-sm); }
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-body-sm); line-height: var(--lh-ui); }
-/* セルは最小幅を確保し, 収まらない表は.table-wrapで横スクロールさせる(Claude Docsと同じ方式). 数値列は除く */
+/* セルは最小幅を確保し, 収まらない表は.table-wrapで横スクロールさせる. 数値列は除く */
 td:not(.num) { min-width: var(--cell-min); }
 th, td { padding: var(--space-12) var(--space-16); text-align: left; border-bottom: 1px solid var(--border-faint); vertical-align: top; }
 th { font-weight: var(--weight-medium); color: var(--text-tertiary); background: var(--bg-subtle); font-size: var(--fs-caption); white-space: nowrap; }
@@ -552,7 +551,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tab:hover { color: var(--text); }
 .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); font-weight: var(--weight-medium); }
 
-/* ---------- ドキュメント(Claude Docsの実測値に合わせる. research/notes.md 7章) ----------
+/* ---------- ドキュメント ----------
    骨格: 2段ヘッダー(64px + タブ48px) → 左ナビ288px | 本文 | 右目次304px(1440pxで本文784px).
    左ナビは1024px以上, 右目次は1280px以上で表示. 1023px以下は左ナビをドロワーにする. */
 :root:has(.site-header--docs) { --header-h: calc(var(--space-64) + var(--tabs-h)); }
