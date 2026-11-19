@@ -15,8 +15,12 @@ namespace Wakudori
     {
         private const int DimAlpha = 110;   // 範囲の外の暗さ
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
-        private const int HandleSize96 = 8; // ハンドルの大きさ(96 DPIのとき)
-        private const int HitSize96 = 10;   // ハンドルをつかめる範囲(96 DPIのとき. Selection側でさらに4px広げる)
+        private const int HandleSize96 = 9; // ハンドル(丸)の直径(96 DPIのとき)
+        private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
+        private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
+
+        // 選んだ辺の色. Anthropicのクレイ色
+        private static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
 
         private enum DragMode { None, Move, FrameHandle }
 
@@ -169,16 +173,7 @@ namespace Wakudori
                         g.FillRectangle(inside, local);
                     }
 
-                    // 点線の枠は範囲のすぐ外側の1pxに描く. 撮るときは選択画面を消すので, 画像には入らない.
-                    Rectangle line = new Rectangle(local.X - 1, local.Y - 1, local.Width + 1, local.Height + 1);
-                    using (Pen white = new Pen(Color.White, 1f))
-                    using (Pen black = new Pen(Color.Black, 1f))
-                    {
-                        black.DashPattern = new float[] { 4f, 4f };
-                        g.DrawRectangle(white, line);
-                        g.DrawRectangle(black, line);
-                    }
-
+                    DrawBorder(g, local);
                     DrawHandles(g, frame);
                 }
 
@@ -186,26 +181,76 @@ namespace Wakudori
             }
         }
 
+        // Macのように白い破線で描く. 白い背景でも見えるよう, 下に薄い黒の線を敷く.
+        // 線は範囲のすぐ外側の1pxに描く. 撮るときは選択画面を消すので, 画像には入らない.
+        private void DrawBorder(Graphics g, Rectangle local)
+        {
+            Rectangle line = new Rectangle(local.X - 1, local.Y - 1, local.Width + 1, local.Height + 1);
+            float dash = Scaled(Dash96);
+            g.CompositingMode = CompositingMode.SourceOver;
+            using (Pen shadow = new Pen(Color.FromArgb(110, 0, 0, 0), 1f))
+            using (Pen white = new Pen(Color.FromArgb(240, 255, 255, 255), 1f))
+            {
+                white.DashPattern = new float[] { dash, dash };
+                g.DrawRectangle(shadow, line);
+                g.DrawRectangle(white, line);
+            }
+
+            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺.
+            FrameHandle h = selection.SelectedHandle;
+            if (h != FrameHandle.None)
+            {
+                int w = Scaled(2);
+                using (SolidBrush accent = new SolidBrush(AccentColor))
+                {
+                    if (MovesLeft(h)) g.FillRectangle(accent, line.Left - w + 1, line.Top - w + 1, w, line.Height + w * 2 - 1);
+                    if (MovesRight(h)) g.FillRectangle(accent, line.Right, line.Top - w + 1, w, line.Height + w * 2 - 1);
+                    if (MovesTop(h)) g.FillRectangle(accent, line.Left - w + 1, line.Top - w + 1, line.Width + w * 2 - 1, w);
+                    if (MovesBottom(h)) g.FillRectangle(accent, line.Left - w + 1, line.Bottom, line.Width + w * 2 - 1, w);
+                }
+            }
+            g.CompositingMode = CompositingMode.SourceCopy;
+        }
+
+        // ハンドルはMacのように白い小さな丸. 選んだ辺の上の丸はクレイ色にする.
         private void DrawHandles(Graphics g, Rectangle frame)
         {
             Rectangle[] handles = Selection.HandleRects(frame, Scaled(HandleSize96));
+            FrameHandle sel = selection.SelectedHandle;
+            g.CompositingMode = CompositingMode.SourceOver;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
             using (SolidBrush normal = new SolidBrush(Color.White))
-            using (SolidBrush selected = new SolidBrush(Color.FromArgb(255, 0, 120, 215)))
-            using (Pen border = new Pen(Color.FromArgb(255, 40, 40, 40), 1f))
+            using (SolidBrush accent = new SolidBrush(AccentColor))
+            using (Pen border = new Pen(Color.FromArgb(150, 60, 60, 60), Math.Max(1f, scale)))
             {
                 for (int i = 0; i < handles.Length; i++)
                 {
-                    Rectangle r = ToLocal(handles[i]);
+                    RectangleF r = ToLocal(handles[i]);
+                    r.Inflate(-0.5f, -0.5f);
                     FrameHandle h = (FrameHandle)(i + 1);
-                    g.FillRectangle(h == selection.SelectedHandle ? selected : normal, r);
-                    g.DrawRectangle(border, r.X, r.Y, r.Width - 1, r.Height - 1);
+                    g.FillEllipse(OnSelectedEdge(h, sel) ? accent : normal, r);
+                    g.DrawEllipse(border, r);
                 }
             }
+            g.SmoothingMode = SmoothingMode.None;
+            g.CompositingMode = CompositingMode.SourceCopy;
+        }
+
+        // ハンドルhが, 選んだ辺(角なら2辺)の上にあるか
+        private static bool OnSelectedEdge(FrameHandle h, FrameHandle sel)
+        {
+            if (sel == FrameHandle.None) return false;
+            if (h == sel) return true;
+            bool selCorner = sel == FrameHandle.TopLeft || sel == FrameHandle.TopRight || sel == FrameHandle.BottomLeft || sel == FrameHandle.BottomRight;
+            if (selCorner) return false; // 角を選んだときは, その角の丸だけを塗る
+            // 辺を選んだときは, その辺の両端の角の丸も塗る
+            return (MovesLeft(sel) && MovesLeft(h)) || (MovesRight(sel) && MovesRight(h))
+                || (MovesTop(sel) && MovesTop(h)) || (MovesBottom(sel) && MovesBottom(h));
         }
 
         private void DrawHelp(Graphics g)
         {
-            const string text = "ドラッグ・矢印キーで調整 (Ctrl+矢印: 10px) / ハンドルをクリックで辺を選択, 枠の内側をクリックで解除 / Enter: 撮影 / Esc: 閉じる";
+            const string text = "辺・角のドラッグで大きさ, 内側のドラッグで位置 / 辺・角をクリックして矢印キーで調整 (Ctrl: 10px) / 内側をクリックで解除 / Enter: 撮影 / Esc: 閉じる";
             g.CompositingMode = CompositingMode.SourceOver;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearTypeは透明な面だと汚くなる
             using (Font font = new Font("Yu Gothic UI", 10f * scale, FontStyle.Regular, GraphicsUnit.Point))
@@ -270,10 +315,10 @@ namespace Wakudori
             Point p = ToVirtual(e.Location);
             Rectangle frame = selection.Frame;
 
-            FrameHandle hit = Selection.HitTestHandle(frame, p, Scaled(HitSize96));
+            FrameHandle hit = Selection.HitTest(frame, p, Scaled(Grip96));
             if (hit != FrameHandle.None)
             {
-                // ハンドルをクリックすると選んだ状態になり, そのままドラッグすると辺を動かす.
+                // 辺・角をクリックすると選んだ状態になり, そのままドラッグすると辺を動かす(Macのように8点以外もつかめる).
                 selection.SelectedHandle = hit;
                 dragMode = DragMode.FrameHandle;
                 dragHandle = hit;
@@ -337,7 +382,7 @@ namespace Wakudori
         private void UpdateCursor(Point p)
         {
             Rectangle frame = selection.Frame;
-            FrameHandle hit = Selection.HitTestHandle(frame, p, Scaled(HitSize96));
+            FrameHandle hit = Selection.HitTest(frame, p, Scaled(Grip96));
             Cursor c;
             switch (hit)
             {

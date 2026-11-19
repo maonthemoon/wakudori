@@ -67,6 +67,7 @@ namespace Wakudori
     internal sealed class CaptureSession : ApplicationContext
     {
         private readonly AppSettings settings;
+        private readonly RegionStore store;
         private readonly List<OverlayForm> forms = new List<OverlayForm>();
         private readonly Selection selection;
         private bool capturing;
@@ -80,9 +81,18 @@ namespace Wakudori
             Rectangle[] monitors = new Rectangle[screens.Length];
             for (int i = 0; i < screens.Length; i++) monitors[i] = screens[i].Bounds;
 
-            // 前回の範囲(A2)は8章の5で読み込む. 今はマウスカーソルがあるモニターの中央に出す(C5).
+            // 前回の範囲(A2)を読む. 開くたびに読み直す(A5). 読めないときは, 前回の範囲なしで開く(7.1).
+            string error;
+            store = RegionStore.Load(RegionStore.DefaultPath, out error);
+            if (error != null)
+            {
+                MessageBox.Show(error, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            // 前回の範囲がなければ, マウスカーソルがあるモニターの中央に出す(C5).
+            // 前回の範囲が画面の外になっていれば, カーソルのモニターの中央に同じ大きさで出し直す(C7).
             Point cursor = Cursor.Position;
-            Rectangle initial = Selection.InitialFrame(monitors, null, cursor, defaultFrameSize);
+            Rectangle initial = Selection.InitialFrame(monitors, store.Last, cursor, defaultFrameSize);
             selection = new Selection(monitors, initial);
 
             for (int i = 0; i < screens.Length; i++)
@@ -150,6 +160,22 @@ namespace Wakudori
                 // 名前付きの範囲(8章の5)はまだないので, ファイル名はscreenshot_...になる(D2).
                 CaptureOutput.CopyToClipboard(bmp);
                 CaptureOutput.SavePng(bmp, settings.SaveDir, null, now);
+            }
+            SaveLast(frame);
+        }
+
+        // 撮った範囲を「前回の範囲」として残す(A2). Escで閉じたときは残さない(A8).
+        private void SaveLast(Rectangle frame)
+        {
+            if (!store.CanSave) return; // 壊れたファイルは上書きしない(読み込み時に知らせ済み)
+            store.Last = frame;
+            try
+            {
+                store.Save(RegionStore.DefaultPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("前回の範囲を保存できませんでした.\r\n\r\n" + ex.Message, "Wakudori", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 

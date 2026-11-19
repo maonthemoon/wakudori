@@ -122,19 +122,27 @@ internal static class Program
         sf.SetFrame(new Rectangle(-2000, 10, 100, 100));
         Eq(new Rectangle(-1280, 10, 100, 100), sf.Frame, "SetFrame fits left monitor");
 
-        // HandleRects / HitTestHandle
+        // HandleRects / HitTest
+        {
+            Rectangle f = new Rectangle(100, 100, 200, 100); // l=100 r=300 t=100 b=200
+            Check(Selection.HitTest(f, new Point(100, 100), 5) == FrameHandle.TopLeft, "HitTest TopLeft on corner");
+            Check(Selection.HitTest(f, new Point(108, 95), 5) == FrameHandle.TopLeft, "HitTest corner zone is grip*2");
+            Check(Selection.HitTest(f, new Point(200, 102), 5) == FrameHandle.Top, "HitTest anywhere on Top edge");
+            Check(Selection.HitTest(f, new Point(150, 198), 5) == FrameHandle.Bottom, "HitTest anywhere on Bottom edge");
+            Check(Selection.HitTest(f, new Point(97, 160), 5) == FrameHandle.Left, "HitTest Left edge outside");
+            Check(Selection.HitTest(f, new Point(304, 130), 5) == FrameHandle.Right, "HitTest Right edge");
+            Check(Selection.HitTest(f, new Point(299, 199), 5) == FrameHandle.BottomRight, "HitTest BottomRight");
+            Check(Selection.HitTest(f, new Point(200, 150), 5) == FrameHandle.None, "HitTest inside is None");
+            Check(Selection.HitTest(f, new Point(200, 90), 5) == FrameHandle.None, "HitTest far outside is None");
+            Rectangle thin = new Rectangle(100, 100, 6, 200); // l=100 r=106
+            Check(Selection.HitTest(thin, new Point(105, 200), 5) == FrameHandle.Right, "HitTest thin frame picks nearer side");
+        }
         Rectangle fr = new Rectangle(100, 100, 200, 100);
         Rectangle[] hr = Selection.HandleRects(fr, 10);
         Check(hr.Length == 8, "HandleRects count");
         Eq(new Rectangle(95, 95, 10, 10), hr[0], "HandleRects TopLeft");
         Eq(new Rectangle(295, 145, 10, 10), hr[3], "HandleRects Right");
-        Check(Selection.HitTestHandle(fr, new Point(100, 100), 10) == FrameHandle.TopLeft, "hit TopLeft");
-        Check(Selection.HitTestHandle(fr, new Point(200, 100), 10) == FrameHandle.Top, "hit Top");
-        Check(Selection.HitTestHandle(fr, new Point(300, 150), 10) == FrameHandle.Right, "hit Right");
-        Check(Selection.HitTestHandle(fr, new Point(200, 150), 10) == FrameHandle.None, "hit None inside");
         Rectangle tiny = new Rectangle(100, 100, 16, 16);
-        Check(Selection.HitTestHandle(tiny, new Point(106, 100), 10) == FrameHandle.TopLeft, "hit overlap prefers corner over Top");
-        Check(Selection.HitTestHandle(tiny, new Point(104, 104), 10) == FrameHandle.TopLeft, "hit corner priority over Top/Left");
 
         Console.WriteLine(pass + " passed, " + fail + " failed");
         return fail == 0 ? 0 : 1;

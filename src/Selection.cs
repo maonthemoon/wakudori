@@ -123,16 +123,29 @@ namespace Wakudori
             };
         }
 
-        // pがどのハンドルの上か. 当たり判定は少し広げ, 重なるときは四隅を優先する
-        public static FrameHandle HitTestHandle(Rectangle frame, Point p, int handleSize)
+        // pが枠のどの角・辺の上か(Macのように, 8点だけでなく辺のどこでもつかめる).
+        // grip: 辺の線からの当たり幅. 角は辺より広く(grip*2)取り, 角を優先する.
+        // 枠が細くて両側の辺に当たるときは, 近いほうを選ぶ.
+        public static FrameHandle HitTest(Rectangle frame, Point p, int grip)
         {
-            Rectangle[] rects = HandleRects(frame, handleSize + 4);
-            // 四隅(TopLeft, TopRight, BottomRight, BottomLeft)を先に調べる
-            int[] order = new int[] { 0, 2, 4, 6, 1, 3, 5, 7 };
-            for (int i = 0; i < order.Length; i++)
+            int l = frame.Left, r = frame.Right, t = frame.Top, b = frame.Bottom;
+            if (p.X < l - grip || p.X > r + grip || p.Y < t - grip || p.Y > b + grip) return FrameHandle.None;
+
+            int dl = Math.Abs(p.X - l), dr = Math.Abs(p.X - r);
+            int dt = Math.Abs(p.Y - t), db = Math.Abs(p.Y - b);
+            bool leftSide = dl <= dr;
+            bool topSide = dt <= db;
+            int dx = leftSide ? dl : dr;
+            int dy = topSide ? dt : db;
+
+            int corner = grip * 2;
+            if (dx <= corner && dy <= corner)
             {
-                if (rects[order[i]].Contains(p)) return (FrameHandle)(order[i] + 1);
+                if (topSide) return leftSide ? FrameHandle.TopLeft : FrameHandle.TopRight;
+                return leftSide ? FrameHandle.BottomLeft : FrameHandle.BottomRight;
             }
+            if (dx <= grip && (dy > grip || dx <= dy)) return leftSide ? FrameHandle.Left : FrameHandle.Right;
+            if (dy <= grip) return topSide ? FrameHandle.Top : FrameHandle.Bottom;
             return FrameHandle.None;
         }
 
