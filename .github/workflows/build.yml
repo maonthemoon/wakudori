@@ -1,0 +1,70 @@
+# テスト(Linux)と, csc.exeでのビルドとZIP(Windows).
+# v で始まるタグ(例: v0.1.0)をpushすると, ZIPをReleasesに置く.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Run tests
+        run: |
+          for t in SelectionTests OutputTests HotkeyTests RegionTests; do
+            dotnet run --project "tests/$t"
+          done
+
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with csc.exe
+        shell: cmd
+        run: build.cmd nopause
+      - name: Check tag matches version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $m = Select-String -Path "src\AssemblyInfo.cs" -Pattern 'AssemblyInformationalVersion\("([^"]+)"\)'
+          $v = $m.Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "タグ ${{ github.ref_name }} と AssemblyInfo.cs のバージョン $v が違います" }
+      - name: Package
+        id: package
+        shell: pwsh
+        run: ./tools/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ format('Wakudori-{0}', steps.package.outputs.version) }}
+          path: ${{ steps.package.outputs.zip }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/*.zip \
+            --repo "${{ github.repository }}" \
+            --title "Wakudori ${{ github.ref_name }}" \
+            --generate-notes

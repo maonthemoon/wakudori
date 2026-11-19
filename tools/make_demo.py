@@ -2,7 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = ["pillow>=10"]
 # ///
-"""READMEとマニュアル用の紹介GIF(イメージ図)を作る.
+"""READMEとマニュアル用の紹介GIF(イメージ図)と静止画を作る.
+
+出力: demo.gif(README), overview.png, adjust.png, list.png(マニュアル docs/index.html).
 
 実際の画面は撮らず, 架空のデスクトップの上に, 選択画面を
 src/OverlayForm.cs と src/Theme.cs と同じ色・大きさで描く.
@@ -530,8 +532,20 @@ def main():
     # 静止画(READMEの先頭やマニュアル用): 名前を呼び出したところ
     still_index = next(i for i, (st, _) in enumerate(board) if st["active"] == 0 and not st["key"])
     frames[still_index].save(out / "overview.png", optimize=True)
+
+    # マニュアル用: 辺を選んでつまみが出たところ
+    adjust_index = max(i for i, (st, _) in enumerate(board) if st["sel"] == "right" and st["cap"][0] == 2)
+    frames[adjust_index].save(out / "adjust.png", optimize=True)
+
+    # マニュアル用: 一覧(チップ)の部分だけ. 名前に乗せて下見しているところ
+    hover_index = next(i for i, (st, _) in enumerate(board) if st["hot"] == 0)
+    rects, more = chip_layout(fonts)
+    left, right = rects[0][0] - 24, more[0] + more[2] + 24
+    frames[hover_index].crop((int(left), 4, int(right), CHIP_TOP + CHIP_H + 20)).save(out / "list.png", optimize=True)
+
     print(f"{gif} ({gif.stat().st_size // 1024} KB, {len(frames)}コマ)")
-    print(out / "overview.png")
+    for name in ("overview.png", "adjust.png", "list.png"):
+        print(out / name)
 
 
 if __name__ == "__main__":

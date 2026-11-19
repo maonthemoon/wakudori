@@ -24,7 +24,9 @@ Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要�
 3. ホットキーの登録画面が出たら, 使うキー(例: `Ctrl+Shift+S`)を押して「登録」を押します. Wakudoriはタスクトレイに常駐します.
 4. ホットキーを押すと選択画面が開きます. 枠を合わせて`Enter`で撮ります.
 
-PCの起動時に自動で起動するには, `Win+R`で`shell:startup`を開き, `Wakudori.exe`のショートカットを置きます.
+初めて起動したときに「PCの起動時に起動しますか」と聞かれます. あとからでも, トレイのメニューの「PC起動時に起動」で切り替えられます.
+
+詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/)にあります(ZIPの`manual\index.html`, トレイのメニューの「マニュアル」からも開けます).
 
 ## 操作
 
@@ -53,7 +55,7 @@ PCの起動時に自動で起動するには, `Win+R`で`shell:startup`を開き
 
 ### タスクトレイ
 
-アイコンのクリックで選択画面を開きます. 右クリックのメニューから, ホットキーの登録し直し, 画像の保存フォルダーや設定フォルダーを開く操作, 終了ができます.
+アイコンのクリックで選択画面を開きます. 右クリックのメニューには, 撮影, ホットキー再登録, 画像保存フォルダーを開く, 設定フォルダーを開く, PC起動時に起動, マニュアル, 終了があります.
 
 ## 保存されるもの
 
@@ -63,7 +65,7 @@ PCの起動時に自動で起動するには, `Win+R`で`shell:startup`を開き
 | `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`)と画像の保存先(`saveDir`) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
 
-アンインストールは, 常駐を「終了」してから, `Wakudori.exe`のフォルダーと`%APPDATA%\Wakudori`を消すだけです.
+アンインストールは, トレイのメニューで「PC起動時に起動」を外して「終了」してから, `Wakudori.exe`のフォルダーと`%APPDATA%\Wakudori`を消すだけです.
 
 ## 動作環境
 
@@ -81,6 +83,10 @@ SDKのインストールは不要です. Windows標準の`csc.exe`(.NET Framewor
 3. `bin\Wakudori.exe`ができます.
 
 C# 5の文法で書いています(`csc.exe`がC# 5までのため).
+
+配る用のZIPは`powershell -ExecutionPolicy Bypass -File tools\package.ps1`で`dist\`に作ります. バージョンは`src/AssemblyInfo.cs`で決めます.
+
+`v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます(`.github/workflows/build.yml`).
 
 ### テスト
 

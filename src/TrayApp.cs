@@ -15,6 +15,7 @@ namespace Wakudori
         private readonly HotkeyWindow hotkeyWindow;
         private readonly NotifyIcon tray;
         private readonly IntPtr iconHandle;
+        private ToolStripMenuItem startupItem;
         private CaptureSession session;
         private bool dialogOpen;
         private bool exiting;
@@ -35,6 +36,12 @@ namespace Wakudori
                 if (e.Button == MouseButtons.Left) OpenSelection();
             };
             tray.Visible = true;
+
+            string startupError = Startup.FixPathIfMoved();
+            if (startupError != null)
+            {
+                Notice.Show("自動起動の場所を直せませんでした", startupError, NoticeKind.Warning);
+            }
 
             SetUpHotkeyAtStartup();
             UpdateTrayText();
@@ -80,7 +87,11 @@ namespace Wakudori
                 string current = hadHotkey ? settings.Hotkey : null;
                 using (HotkeyForm form = new HotkeyForm(current, firstRun, TryRegister))
                 {
-                    if (form.ShowDialog() == DialogResult.OK) return;
+                    if (form.ShowDialog() == DialogResult.OK)
+                    {
+                        if (firstRun) AskStartupOnFirstRun();
+                        return;
+                    }
                 }
 
                 // やめたときは前のキーに戻す.
@@ -125,6 +136,48 @@ namespace Wakudori
                     "ホットキーは登録しましたが, 次に起動したときは登録し直しになります.\r\n\r\n" + ex.Message, NoticeKind.Warning);
             }
             return null;
+        }
+
+        // ---- PC起動時に起動 ----
+
+        // 初回の登録が済んだ直後にだけ聞く. すでに登録されていれば聞かない
+        private static void AskStartupOnFirstRun()
+        {
+            if (Startup.IsEnabled()) return;
+            if (!Notice.Confirm(null, "PCの起動時にWakudoriを起動しますか?",
+                "あとからトレイのメニューの「PC起動時に起動」で変えられます.", "起動する")) return;
+            ShowStartupError(Startup.SetEnabled(true));
+        }
+
+        private void ToggleStartup()
+        {
+            ShowStartupError(Startup.SetEnabled(!Startup.IsEnabled()));
+        }
+
+        private static void ShowStartupError(string error)
+        {
+            if (error == null) return;
+            Notice.Show("自動起動を設定できませんでした", error, NoticeKind.Warning);
+        }
+
+        // ---- マニュアル ----
+
+        private const string ManualUrl = "https://maonthemoon.github.io/wakudori/";
+
+        // exeの隣のmanual\index.htmlがあればそれを, なければWebのマニュアルを既定のブラウザーで開く
+        private static void OpenManual()
+        {
+            string target = ManualUrl;
+            try
+            {
+                string local = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "manual", "index.html");
+                if (File.Exists(local)) target = local;
+                Process.Start(target);
+            }
+            catch (Exception ex)
+            {
+                Notice.Show("マニュアルを開けませんでした", target + "\r\n\r\n" + ex.Message, NoticeKind.Warning);
+            }
         }
 
         private void UpdateTrayText()
@@ -180,6 +233,7 @@ namespace Wakudori
             menu.BackColor = Theme.Bg;
             menu.ForeColor = Theme.Text;
             menu.Padding = new Padding(0, 4, 0, 4);
+            menu.Opening += delegate { startupItem.Checked = Startup.IsEnabled(); }; // 手でレジストリを変えても合うように, 開くたびに読む
             ToolStripMenuItem select = new ToolStripMenuItem("撮影");
             select.Font = new Font(select.Font, FontStyle.Bold);
             select.Click += delegate { OpenSelection(); };
@@ -188,6 +242,10 @@ namespace Wakudori
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("画像保存フォルダーを開く", null, delegate { OpenFolder(settings.SaveDir); }));
             menu.Items.Add(new ToolStripMenuItem("設定フォルダーを開く", null, delegate { OpenFolder(AppSettings.ConfigDir); }));
+            menu.Items.Add(new ToolStripSeparator());
+            startupItem = new ToolStripMenuItem("PC起動時に起動", null, delegate { ToggleStartup(); });
+            menu.Items.Add(startupItem);
+            menu.Items.Add(new ToolStripMenuItem("マニュアル", null, delegate { OpenManual(); }));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("終了", null, delegate { Exit(); }));
             return menu;
