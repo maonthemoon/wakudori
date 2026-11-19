@@ -241,13 +241,9 @@ namespace Wakudori
         {
             RectangleF line = BorderCenterLine(local);
             float l = line.Left, r = line.Right, t = line.Top, b = line.Bottom;
-            float cx = (l + r) / 2f, cy = (t + b) / 2f;
-            // FrameHandleの順(TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left)
-            PointF[] centers = new PointF[]
-            {
-                new PointF(l, t), new PointF(cx, t), new PointF(r, t), new PointF(r, cy),
-                new PointF(r, b), new PointF(cx, b), new PointF(l, b), new PointF(l, cy)
-            };
+            // 丸は四隅だけ(B9). 辺の中央の丸は端の文字や罫線を隠すのでやめた. 辺はどこでもつかめる.
+            PointF[] centers = new PointF[] { new PointF(l, t), new PointF(r, t), new PointF(r, b), new PointF(l, b) };
+            FrameHandle[] handles = new FrameHandle[] { FrameHandle.TopLeft, FrameHandle.TopRight, FrameHandle.BottomRight, FrameHandle.BottomLeft };
 
             float d = Scaled(HandleSize96);
             FrameHandle sel = selection.SelectedHandle;
@@ -260,8 +256,7 @@ namespace Wakudori
                 for (int i = 0; i < centers.Length; i++)
                 {
                     RectangleF rc = new RectangleF(centers[i].X - d / 2f, centers[i].Y - d / 2f, d, d);
-                    FrameHandle h = (FrameHandle)(i + 1);
-                    g.FillEllipse(OnSelectedEdge(h, sel) ? accent : normal, rc);
+                    g.FillEllipse(OnSelectedEdge(handles[i], sel) ? accent : normal, rc);
                     g.DrawEllipse(border, rc);
                 }
             }
@@ -283,7 +278,7 @@ namespace Wakudori
 
         private void DrawHelp(Graphics g)
         {
-            const string text = "辺・角のドラッグで大きさ, 内側のドラッグで位置 / 辺・角をクリックして矢印キーで調整 (Ctrl: 10px) / 内側をクリックで解除 / Enter: 撮影 / Esc: 閉じる";
+            const string text = "辺・角のドラッグで大きさ, 内側のドラッグで位置 / 辺・角をクリックして矢印キーで調整 (Ctrl: 10px) / 辺・角以外のクリックかEscで解除 / Enter: 撮影 / Esc: 閉じる";
             g.CompositingMode = CompositingMode.SourceOver;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearTypeは透明な面だと汚くなる
             using (Font font = new Font("Yu Gothic UI", 10f * scale, FontStyle.Regular, GraphicsUnit.Point))
@@ -364,7 +359,9 @@ namespace Wakudori
             }
             else
             {
-                return; // 枠の外のドラッグで範囲を選び直す操作は作らない(B3)
+                // 枠の外をクリックしても選択を外す. 枠の外のドラッグで範囲を選び直す操作は作らない(B3).
+                selection.SelectedHandle = FrameHandle.None;
+                return;
             }
             dragStart = p;
             frameAtDragStart = frame;
@@ -456,7 +453,15 @@ namespace Wakudori
                     if (CaptureRequested != null) CaptureRequested(this, EventArgs.Empty);
                     return true;
                 case Keys.Escape:
-                    if (CancelRequested != null) CancelRequested(this, EventArgs.Empty);
+                    // 辺・角を選んでいればまず選択を外す. 選んでいなければ閉じる.
+                    if (selection.SelectedHandle != FrameHandle.None)
+                    {
+                        if (dragMode == DragMode.None) selection.SelectedHandle = FrameHandle.None;
+                    }
+                    else if (CancelRequested != null)
+                    {
+                        CancelRequested(this, EventArgs.Empty);
+                    }
                     return true;
             }
             return base.ProcessCmdKey(ref msg, keyData);
