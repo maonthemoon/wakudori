@@ -201,18 +201,30 @@ namespace Wakudori
         }
 
         // 一覧の名前をダブルクリック: その場で名前を変える(A5を変更. regions.jsonの手での編集もこれまでどおりできる).
-        private void OnRegionEditRequested(object sender, SavedRegion region, Rectangle screenRect)
+        private void OnRegionEditRequested(object sender, SavedRegion region)
         {
             if (capturing || closed) return;
             EndPreview();
             if (!CheckCanSave()) return;
             if (editor != null) editor.Close();
             OverlayForm owner = (OverlayForm)sender;
-            InlineNameEditor ed = new InlineNameEditor(screenRect, region.Name, owner.DpiScale,
-                delegate(string text) { return ApplyRename(region, text); });
+            InlineNameEditor ed = new InlineNameEditor(region.Name, owner.ChipFontPx, owner.DpiScale,
+                delegate(string text) { return ApplyRename(region, text); },
+                delegate(string message) { owner.SetEditError(message); });
+            Rectangle area = owner.BeginEdit(region, ed.TextWidth);
+            if (area.IsEmpty)
+            {
+                owner.EndEdit();
+                ed.Dispose();
+                return;
+            }
+            ed.PlaceAt(area);
+            // 文字の長さに合わせてチップを伸び縮みさせ, 入力欄を置き直す
+            ed.TextWidthChanged += delegate { ed.PlaceAt(owner.UpdateEditWidth(ed.TextWidth)); };
             ed.FormClosed += delegate
             {
                 if (editor == ed) editor = null; // 閉じた画面は自動で破棄される
+                owner.EndEdit();
                 if (!closed) owner.Activate();
             };
             editor = ed;

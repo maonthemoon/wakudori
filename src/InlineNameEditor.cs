@@ -1,28 +1,30 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace Wakudori
 {
-    // 一覧の名前をダブルクリックしたときに, その名前の上に重ねて出す入力欄(その場で名前を変える).
-    // 選択画面はレイヤードウィンドウで入力欄を置けないので, 小さな枠なしの画面を名前の位置にぴったり重ねる.
+    // 一覧の名前をダブルクリックしたときの入力欄(その場で名前を変える).
+    // 選択画面はレイヤードウィンドウで入力欄を置けないので, 枠なしの小さな画面に入力欄だけを入れ,
+    // 選択画面が描くチップの, 名前の文字の場所にぴったり重ねる. チップの丸い形やふちは選択画面が描く.
+    // 文字の長さが変わったらTextWidthChangedを出す. 選択画面はチップを伸び縮みさせ, PlaceAtで置き直す.
     // Enterで決める, Escでやめる. ほかの場所をクリックしたときも決める(名前が使えなければやめる).
     internal sealed class InlineNameEditor : Form
     {
         private readonly TextBox box;
-        private readonly Label error;
-        private readonly Func<string, string> apply; // 名前を変える. 成功ならnull, だめならその理由
-        private readonly float scale;
-        private readonly int pillHeight;
+        private readonly Func<string, string> apply;     // 名前を変える. 成功ならnull, だめならその理由
+        private readonly Action<string> showError;       // 理由を出す(nullで消す)
+        private readonly int minWidth;
         private bool done;
 
-        // itemRect: 名前の場所(画面の座標, 物理ピクセル). scale: そのモニターの拡大率(96 DPIで1)
-        public InlineNameEditor(Rectangle itemRect, string name, float scale, Func<string, string> apply)
+        public event EventHandler TextWidthChanged;
+
+        // fontPx: チップの文字の大きさ(ピクセル). scale: そのモニターの拡大率(96 DPIで1)
+        public InlineNameEditor(string name, float fontPx, float scale, Func<string, string> apply, Action<string> showError)
         {
             this.apply = apply;
-            this.scale = scale;
-            pillHeight = itemRect.Height;
+            this.showError = showError;
+            minWidth = (int)Math.Round(48 * scale);
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -30,41 +32,41 @@ namespace Wakudori
             StartPosition = FormStartPosition.Manual;
             AutoScaleMode = AutoScaleMode.None;
             BackColor = Theme.Surface;
-            DoubleBuffered = true;
             Text = "Wakudori - 名前を変える";
-
-            int width = Math.Max(itemRect.Width, S(220));
-            Bounds = new Rectangle(itemRect.X, itemRect.Y, width, pillHeight);
 
             box = new TextBox();
             box.BorderStyle = BorderStyle.None;
-            box.Font = Theme.Body(14 * scale);
+            box.Font = Theme.Body(fontPx);
             box.BackColor = Theme.Surface;
             box.ForeColor = Theme.Text;
             box.MaxLength = 60;
             box.Text = name ?? "";
-            box.Location = new Point(S(14), (pillHeight - box.PreferredHeight) / 2);
-            box.Width = width - S(28);
-            box.TextChanged += delegate { HideError(); };
+            box.Dock = DockStyle.Fill;
+            box.TextChanged += delegate
+            {
+                if (showError != null) showError(null);
+                EventHandler h = TextWidthChanged;
+                if (h != null) h(this, EventArgs.Empty);
+            };
             Controls.Add(box);
-
-            error = new Label();
-            error.AutoSize = false;
-            error.Font = Theme.Body(13 * scale);
-            error.ForeColor = Theme.Danger;
-            error.BackColor = Theme.Bg;
-            error.Location = new Point(S(12), pillHeight + S(4));
-            error.Size = new Size(width - S(24), S(24));
-            error.TextAlign = ContentAlignment.MiddleLeft;
-            error.Visible = false;
-            Controls.Add(error);
-
-            UpdateShape();
         }
 
-        private int S(float v)
+        // 入力した文字の幅(少し余裕を足す). チップの幅はこれに合わせる
+        public int TextWidth
         {
-            return (int)Math.Round(v * scale);
+            get
+            {
+                Size s = TextRenderer.MeasureText(box.Text + " ", box.Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.TextBoxControl);
+                return Math.Max(minWidth, s.Width);
+            }
+        }
+
+        // 名前の文字の場所(画面の座標)に置く. 高さは入力欄に合わせ, 上下の中央にそろえる
+        public void PlaceAt(Rectangle textArea)
+        {
+            if (textArea.IsEmpty) return;
+            int h = box.PreferredHeight;
+            Bounds = new Rectangle(textArea.X, textArea.Y + (textArea.Height - h) / 2, textArea.Width, h);
         }
 
         protected override void OnShown(EventArgs e)
@@ -108,52 +110,9 @@ namespace Wakudori
                 Close();
                 return;
             }
-            error.Text = reason;
-            error.Visible = true;
-            UpdateShape();
+            if (showError != null) showError(reason);
             box.Focus();
             box.SelectAll();
-        }
-
-        private void HideError()
-        {
-            if (!error.Visible) return;
-            error.Visible = false;
-            UpdateShape();
-        }
-
-        // 名前のチップと同じ丸い形にする. 説明を出すときは下に伸ばす.
-        private void UpdateShape()
-        {
-            int h = error.Visible ? pillHeight + S(32) : pillHeight;
-            Height = h;
-            using (GraphicsPath path = error.Visible
-                ? Theme.RoundedRect(new RectangleF(0, 0, Width, h), S(10))
-                : Theme.RoundedRect(new RectangleF(0, 0, Width, h), h / 2f))
-            {
-                Region = new Region(path);
-            }
-            Invalidate();
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            if (error.Visible)
-            {
-                using (SolidBrush b = new SolidBrush(Theme.Bg))
-                {
-                    g.FillRectangle(b, 0, pillHeight, Width, Height - pillHeight);
-                }
-            }
-            // 入力中と分かるよう, 名前の部分を濃い線で囲む
-            using (GraphicsPath path = Theme.RoundedRect(new RectangleF(1, 1, Width - 3, pillHeight - 3), (pillHeight - 3) / 2f))
-            using (Pen pen = new Pen(Theme.Text, Math.Max(1f, 1.5f * scale)))
-            {
-                g.DrawPath(pen, path);
-            }
         }
     }
 }

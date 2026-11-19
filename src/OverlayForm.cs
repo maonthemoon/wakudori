@@ -9,7 +9,6 @@ using System.Windows.Forms;
 namespace Wakudori
 {
     internal delegate void RegionChosenHandler(object sender, SavedRegion region);
-    internal delegate void RegionEditHandler(object sender, SavedRegion region, Rectangle screenRect);
 
     // 1つのモニターを覆う選択画面.
     // 異なるDPIのモニターをまたぐ1枚のウィンドウはずれやすいので, モニターごとに1枚ずつ作る.
@@ -59,8 +58,8 @@ namespace Wakudori
         public event EventHandler SaveRequested;              // Ctrl+S(A3)
         public event RegionChosenHandler RegionChosen;        // 一覧の名前を押した, または数字キー(A4)
         public event RegionChosenHandler RegionHovered;       // 一覧の名前にカーソルが乗った(下見). 離れたらnull
-        public event RegionEditHandler RegionEditRequested;    // 一覧の名前をダブルクリックした(その場で名前を変える). screenRectは名前の場所
-        public event RegionChosenHandler RegionDeleteRequested; // 一覧の名前の右上の×を押した
+        public event RegionChosenHandler RegionEditRequested;   // 一覧の名前をダブルクリックした(その場で名前を変える)
+        public event RegionChosenHandler RegionDeleteRequested; // 一覧の名前の右端の×を押した
         public event EventHandler PreviewCancelRequested;     // 下見をやめて元の枠に戻してほしい(キー操作や枠の操作の前)
 
         // 保存した範囲の一覧(A4, A7). 数字キーのため全フォームが持つが, 描くのはshowListのフォームだけ
@@ -74,6 +73,10 @@ namespace Wakudori
         private int menuScroll;             // 一覧の先頭に見えている項目
         private ListHit hover = ListHit.None;
         private int hoveredRegion = -1;     // 下見中の範囲の番号(RegionHoveredを出した相手)
+        private int editingRegion = -1;     // その場で名前を変えている範囲の番号
+        private int editTextWidth;          // 名前を変えている間の, 入力欄の幅
+        private bool editingInMenu;         // 縦の一覧の項目を変えている(幅は変えない)
+        private string editError;           // 名前を変えられない理由. 名前の下に吹き出しで出す
 
         public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList)
         {
@@ -99,6 +102,7 @@ namespace Wakudori
 
         public int MonitorIndex { get { return monitorIndex; } }
         public float DpiScale { get { return scale; } }
+        public float ChipFontPx { get { return ChipFont96 * scale; } }
         public Rectangle MonitorBounds { get { return bounds; } }
 
         protected override CreateParams CreateParams
@@ -327,6 +331,7 @@ namespace Wakudori
         private const int MenuWidth96 = 260;
         private const int MenuItemHeight96 = 32;
         private const int MenuMaxItems = 12;  // これより多ければホイールでスクロール
+        private const int DeleteZone96 = 24;  // 名前の右端の, ×を出す当たりの幅
 
         internal enum ListHitKind { None, Chip, More, MenuItem, Menu, Delete }
 
@@ -339,12 +344,81 @@ namespace Wakudori
             public bool SameAs(ListHit o) { return Kind == o.Kind && Region == o.Region; }
         }
 
+        // チップの幅: 左の余白, 番号, 名前, 右端の×の場所. 名前を変えている間は, 入力欄の幅に合わせて伸び縮みする
         private int ChipWidth(Graphics g, Font font, int i)
         {
-            SizeF ts = g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic);
-            int w = (int)Math.Ceiling(ts.Width) + Scaled(ChipPadX96) * 2;
+            int text = i == editingRegion && !editingInMenu
+                ? editTextWidth
+                : (int)Math.Ceiling(g.MeasureString(regions[i].Name ?? "", font, PointF.Empty, StringFormat.GenericTypographic).Width);
+            int w = Scaled(ChipPadX96) + text + Scaled(DeleteZone96);
             if (i < 9) w += Scaled(BadgeSize96) + Scaled(6);
             return w;
+        }
+
+        // 名前の文字を置く場所(番号の右から, ×の場所の手前まで)
+        private Rectangle TextRect(Rectangle rc, int i, bool pill)
+        {
+            int x = rc.X + Scaled(pill ? ChipPadX96 : 10);
+            if (i < 9) x += Scaled(BadgeSize96) + Scaled(6);
+            return new Rectangle(x, rc.Y, Math.Max(1, rc.Right - Scaled(DeleteZone96) - x), rc.Height);
+        }
+
+        private Rectangle DeleteZone(Rectangle rc)
+        {
+            return new Rectangle(rc.Right - Scaled(DeleteZone96) - Scaled(2), rc.Y, Scaled(DeleteZone96) + Scaled(2), rc.Height);
+        }
+
+        // ---- その場で名前を変える(入力欄は別の小さな画面で, 名前の文字の場所にぴったり重ねる) ----
+
+        // 名前を変え始める. 入力欄を置く場所(画面の座標)を返す. 見えていなければEmpty
+        public Rectangle BeginEdit(SavedRegion region, int textWidth)
+        {
+            editingRegion = regions.IndexOf(region);
+            editingInMenu = menuOpen && menuItems.Contains(editingRegion);
+            editTextWidth = textWidth;
+            editError = null;
+            rowRects = null;
+            Present();
+            return EditTextRect();
+        }
+
+        // 入力した文字の長さが変わった: チップを伸び縮みさせ, 入力欄の新しい場所を返す
+        public Rectangle UpdateEditWidth(int textWidth)
+        {
+            if (editingRegion < 0) return Rectangle.Empty;
+            editTextWidth = textWidth;
+            editError = null;
+            rowRects = null;
+            Present();
+            return EditTextRect();
+        }
+
+        public void SetEditError(string message)
+        {
+            if (editError == message) return;
+            editError = message;
+            Present();
+        }
+
+        public void EndEdit()
+        {
+            if (editingRegion < 0) return;
+            editingRegion = -1;
+            editError = null;
+            rowRects = null;
+            Present();
+        }
+
+        private Rectangle EditTextRect()
+        {
+            if (editingRegion < 0) return Rectangle.Empty;
+            bool pill;
+            Rectangle rc = ItemRect(editingRegion, out pill);
+            if (rc.IsEmpty) return Rectangle.Empty;
+            Rectangle t = TextRect(rc, editingRegion, pill);
+            if (pill) t.Width = Math.Min(t.Width, editTextWidth);
+            t.Offset(bounds.Location);
+            return t;
         }
 
         private void LayoutChips(Graphics g)
@@ -480,17 +554,47 @@ namespace Wakudori
                     }
                 }
             }
+            if (editError != null && editingRegion >= 0) DrawEditError(g);
             g.TextRenderingHint = TextRenderingHint.SystemDefault;
             g.PixelOffsetMode = PixelOffsetMode.None;
             g.SmoothingMode = SmoothingMode.None;
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
+        // 名前を変えられない理由を, 名前の下に濃い吹き出しで出す(文が途切れないよう, 長さに合わせる)
+        private void DrawEditError(Graphics g)
+        {
+            bool pill;
+            Rectangle rc = ItemRect(editingRegion, out pill);
+            if (rc.IsEmpty) return;
+            using (Font font = Theme.Body(13 * scale))
+            using (StringFormat fmt = new StringFormat(StringFormat.GenericTypographic))
+            {
+                int padX = Scaled(12), padY = Scaled(7);
+                int maxW = Math.Min(Scaled(480), bounds.Width - Scaled(16));
+                SizeF ts = g.MeasureString(editError, font, maxW - padX * 2, fmt);
+                int w = (int)Math.Ceiling(ts.Width) + padX * 2;
+                int h = (int)Math.Ceiling(ts.Height) + padY * 2;
+                int x = Math.Max(Scaled(8), Math.Min(bounds.Width - w - Scaled(8), rc.X));
+                int y = rc.Bottom + Scaled(8);
+                Rectangle box = new Rectangle(x, y, w, h);
+                using (GraphicsPath path = Theme.RoundedRect(box, Scaled(8)))
+                using (SolidBrush b = new SolidBrush(Theme.Text))
+                using (SolidBrush t = new SolidBrush(Theme.Bg))
+                {
+                    g.FillPath(b, path);
+                    g.DrawString(editError, font, t, new RectangleF(x + padX, y + padY, w - padX * 2 + 1, h - padY * 2 + 1), fmt);
+                }
+            }
+        }
+
         // チップ(pill=true)か, 縦の一覧の項目を1つ描く. 先頭9個には数字の四角を付ける.
+        // カーソルが右端(×の場所)にあるときだけ×を出す. 名前を変えている間は, 白地に濃いふちで, 文字は入力欄が描く.
         private void DrawItem(Graphics g, Rectangle rc, int i, Font font, Font badgeFont, StringFormat center, StringFormat left, bool hot, bool pill)
         {
-            bool active = IsActive(i);
-            Color back = active ? Theme.AccentInteractive : (hot ? Theme.BgMuted : (pill ? Theme.Bg : Color.Transparent));
+            bool editing = i == editingRegion;
+            bool active = IsActive(i) && !editing;
+            Color back = editing ? Theme.Surface : active ? Theme.AccentInteractive : (hot ? Theme.BgMuted : (pill ? Theme.Bg : Color.Transparent));
             Color fore = active ? Color.White : Theme.Text;
             if (back.A > 0)
             {
@@ -498,6 +602,13 @@ namespace Wakudori
                 using (SolidBrush b = new SolidBrush(back))
                 {
                     g.FillPath(b, path);
+                    if (editing)
+                    {
+                        using (Pen pen = new Pen(Theme.Text, Math.Max(1f, 1.5f * scale)))
+                        {
+                            g.DrawPath(pen, path);
+                        }
+                    }
                 }
             }
             int x = rc.X + Scaled(pill ? ChipPadX96 : 10);
@@ -512,24 +623,23 @@ namespace Wakudori
                     g.FillPath(b, path);
                     g.DrawString((i + 1).ToString(), badgeFont, t, badge, center);
                 }
-                x += bs + Scaled(6);
             }
-            using (SolidBrush t = new SolidBrush(fore))
+            if (!editing)
             {
-                Rectangle textRc = new Rectangle(x, rc.Y, rc.Right - x - Scaled(pill ? ChipPadX96 : 10), rc.Height);
-                g.DrawString(regions[i].Name ?? "", font, t, textRc, left);
+                using (SolidBrush t = new SolidBrush(fore))
+                {
+                    g.DrawString(regions[i].Name ?? "", font, t, TextRect(rc, i, pill), left);
+                }
             }
 
-            // カーソルが乗っている名前には, 削除の×を出す(チップは右上の角, 縦の一覧は右端).
-            if (hot)
+            if (!editing && hover.Kind == ListHitKind.Delete && hover.Region == i)
             {
                 Rectangle d = DeleteRect(rc, pill);
-                bool dhot = hover.Kind == ListHitKind.Delete && hover.Region == i;
-                using (SolidBrush b = new SolidBrush(dhot ? Theme.Danger : Theme.Text))
-                using (Pen x2 = new Pen(Theme.Bg, Math.Max(1.5f, 1.6f * scale)))
+                using (SolidBrush b = new SolidBrush(active ? Theme.Bg : Theme.Text))
+                using (Pen x2 = new Pen(active ? Theme.AccentInteractive : Theme.Bg, Math.Max(1.5f, 1.6f * scale)))
                 {
                     g.FillEllipse(b, d);
-                    float c = d.Width * 0.28f;
+                    float c = d.Width * 0.27f;
                     float cx = d.X + d.Width / 2f, cy = d.Y + d.Height / 2f;
                     g.DrawLine(x2, cx - c, cy - c, cx + c, cy + c);
                     g.DrawLine(x2, cx - c, cy + c, cx + c, cy - c);
@@ -537,11 +647,13 @@ namespace Wakudori
             }
         }
 
+        // ×の丸(右端の×の場所の中央)
         private Rectangle DeleteRect(Rectangle rc, bool pill)
         {
-            int d = Scaled(18);
-            if (pill) return new Rectangle(rc.Right - d + Scaled(5), rc.Top - Scaled(5), d, d);
-            return new Rectangle(rc.Right - d - Scaled(6), rc.Y + (rc.Height - d) / 2, d, d);
+            int d = Scaled(16);
+            Rectangle z = DeleteZone(rc);
+            int cx = z.X + (z.Width - (pill ? Scaled(4) : 0)) / 2;
+            return new Rectangle(cx - d / 2, rc.Y + (rc.Height - d) / 2, d, d);
         }
 
         // 名前(チップか縦の一覧の項目)の場所. 見えていなければEmpty
@@ -565,18 +677,6 @@ namespace Wakudori
         private ListHit HitList(Point local)
         {
             if (!HasList || rowRects == null) return ListHit.None;
-            // ×はカーソルが乗っている名前にだけ出ているので, その名前の×だけを先に調べる
-            if (hover.Kind == ListHitKind.Chip || hover.Kind == ListHitKind.MenuItem || hover.Kind == ListHitKind.Delete)
-            {
-                bool pill;
-                Rectangle rc = ItemRect(hover.Region, out pill);
-                if (!rc.IsEmpty)
-                {
-                    Rectangle d = DeleteRect(rc, pill);
-                    d.Inflate(Scaled(2), Scaled(2));
-                    if (d.Contains(local)) return new ListHit(ListHitKind.Delete, hover.Region);
-                }
-            }
             if (menuOpen)
             {
                 int visible;
@@ -586,14 +686,26 @@ namespace Wakudori
                     for (int row = 0; row < visible; row++)
                     {
                         int idx = menuScroll + row;
-                        if (idx < menuItems.Count && MenuItemRect(menu, row).Contains(local)) return new ListHit(ListHitKind.MenuItem, menuItems[idx]);
+                        Rectangle ir = MenuItemRect(menu, row);
+                        if (idx < menuItems.Count && ir.Contains(local))
+                        {
+                            int r = menuItems[idx];
+                            if (r != editingRegion && DeleteZone(ir).Contains(local)) return new ListHit(ListHitKind.Delete, r);
+                            return new ListHit(ListHitKind.MenuItem, r);
+                        }
                     }
                     return new ListHit(ListHitKind.Menu, -1);
                 }
             }
             for (int k = 0; k < rowRects.Count; k++)
             {
-                if (rowRects[k].Contains(local)) return new ListHit(ListHitKind.Chip, rowItems[k]);
+                if (rowRects[k].Contains(local))
+                {
+                    // 右端の×の場所に入ったら×を出す(削除の当たり)
+                    int r = rowItems[k];
+                    if (r != editingRegion && DeleteZone(rowRects[k]).Contains(local)) return new ListHit(ListHitKind.Delete, r);
+                    return new ListHit(ListHitKind.Chip, r);
+                }
             }
             if (!moreRect.IsEmpty && moreRect.Contains(local)) return new ListHit(ListHitKind.More, -1);
             return ListHit.None;
@@ -613,11 +725,31 @@ namespace Wakudori
             if (RegionHovered != null) RegionHovered(this, region >= 0 ? regions[region] : null);
         }
 
+        private void OpenMenu()
+        {
+            if (menuOpen || menuItems.Count == 0) return;
+            menuOpen = true;
+            menuScroll = 0;
+            Present();
+        }
+
         private void CloseMenu()
         {
-            if (!menuOpen) return;
+            if (!menuOpen || menuItems.Contains(editingRegion)) return; // 縦の一覧で名前を変えている間は閉じない
             menuOpen = false;
             Present();
+        }
+
+        // 「+N」にカーソルを乗せたら縦の一覧を開き, 「+N」と一覧から離れたら閉じる.
+        private void UpdateMenuByHover(Point local, ListHit lh)
+        {
+            if (moreRect.IsEmpty) return;
+            if (lh.Kind == ListHitKind.More) { OpenMenu(); return; }
+            if (!menuOpen) return;
+            int visible;
+            Rectangle zone = Rectangle.Union(moreRect, MenuRect(out visible));
+            zone.Inflate(Scaled(8), Scaled(8)); // 「+N」と一覧のすき間を通っても閉じない
+            if (!zone.Contains(local)) CloseMenu();
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -691,13 +823,7 @@ namespace Wakudori
                 if (e.Clicks >= 2)
                 {
                     // ダブルクリック: その場で名前を変える
-                    bool pill;
-                    Rectangle rc = ItemRect(lh.Region, out pill);
-                    if (!rc.IsEmpty && RegionEditRequested != null)
-                    {
-                        rc.Offset(bounds.Location);
-                        RegionEditRequested(this, region, rc);
-                    }
+                    if (RegionEditRequested != null) RegionEditRequested(this, region);
                     return;
                 }
                 // 名前を押したら, その範囲に決める(A4). 下見で動いていた枠がそのまま残る.
@@ -710,9 +836,7 @@ namespace Wakudori
             }
             if (lh.Kind == ListHitKind.More)
             {
-                menuOpen = !menuOpen;
-                menuScroll = 0;
-                Present();
+                OpenMenu();
                 return;
             }
             if (lh.Kind == ListHitKind.Menu) return;
@@ -773,6 +897,8 @@ namespace Wakudori
             else
             {
                 ListHit lh = HitList(e.Location);
+                if (HasList && rowRects != null) UpdateMenuByHover(e.Location, lh);
+                lh = HitList(e.Location);
                 SetListHover(lh);
                 if (lh.Kind != ListHitKind.None)
                 {
@@ -802,6 +928,7 @@ namespace Wakudori
             base.OnMouseLeave(e);
             if (dragMode == DragMode.None) selection.HoverHandle = FrameHandle.None;
             SetListHover(ListHit.None);
+            CloseMenu();
         }
 
         private void UpdateCursor(Point p)
