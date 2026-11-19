@@ -15,17 +15,18 @@ namespace Wakudori
     {
         private const int DimAlpha = 110;   // 範囲の外の暗さ
         private const int InsideAlpha = 1;  // 範囲の内側. 0にするとクリックが下へ抜けるので1にする
-        private const int HandleSize96 = 10; // ハンドル(丸)の直径(96 DPIのとき)
+        private const int HandleSize96 = 10; // 丸の直径(96 DPIのとき)
         private const int Grip96 = 5;       // 辺をつかめる幅(96 DPIのとき). 角はこの2倍
         private const int Dash96 = 3;       // 破線の長さと間隔(96 DPIのとき)
+        private const float FadedOpacity = 0.35f; // 辺・角を選んだとき, ほかの辺と丸をこの濃さにする
 
-        // 選んだ辺の色. Anthropicのクレイ色
-        internal static readonly Color AccentColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
-        // 線の色. 明るい画面でも暗い画面でも見えるよう, 白地に黒の破線の2色にする
-        private static readonly Color BorderBackColor = Color.FromArgb(230, 255, 255, 255);     // 破線の地(白)
-        private static readonly Color BorderDashColor = Color.FromArgb(255, 0x20, 0x20, 0x20);  // 破線(黒)
-        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xF5, 0xF5, 0xF5);  // 丸の中
-        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x50, 0x50, 0x50); // 丸のふち
+        // 色はanthropic-htmlのライトテーマに合わせる(B12). 黒は暖色の黒(#141413).
+        private static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13);       // 範囲の外
+        // 線は, 明るい画面でも暗い画面でも見えるよう, 白地に黒の破線の2色にする
+        private static readonly Color BorderBackColor = Color.FromArgb(230, 0xFF, 0xFF, 0xFF);    // 線の地(白)
+        private static readonly Color BorderLineColor = Color.FromArgb(255, 0x14, 0x14, 0x13);   // 破線, 選んだ辺の実線
+        private static readonly Color HandleFillColor = Color.FromArgb(255, 0xFF, 0xFF, 0xFF);   // 丸の中
+        private static readonly Color HandleBorderColor = Color.FromArgb(255, 0x3D, 0x3D, 0x3A); // 丸のふち
         private const float HandleBorder96 = 1.5f; // 丸のふちの太さ(96 DPIのとき)
 
         private enum DragMode { None, Move, FrameHandle }
@@ -47,6 +48,7 @@ namespace Wakudori
         private IntPtr hBitmap = IntPtr.Zero;
         private IntPtr oldBitmap = IntPtr.Zero;
         private Bitmap surface;             // hBitmapのピクセルを直接指すBitmap(PArgb)
+        private Bitmap helpCard;            // 操作説明のカード. 変わらないので1回だけ描く
 
         public bool AllowClose;             // trueのときだけ閉じられる(Alt+F4で1枚だけ閉じないように)
 
@@ -169,7 +171,7 @@ namespace Wakudori
                 g.SmoothingMode = SmoothingMode.None;
                 g.PixelOffsetMode = PixelOffsetMode.None;
 
-                g.Clear(Color.FromArgb(DimAlpha, 0, 0, 0));
+                g.Clear(DimColor);
 
                 if (visible)
                 {
@@ -193,11 +195,10 @@ namespace Wakudori
             get { return Scaled(1); }
         }
 
-        // 線の中心線(ローカル座標, 小数). 線は範囲のすぐ外側に描き, 太くするときは外側へ広げる.
-        // 撮るときは選択画面を消すので, 線も丸も画像には入らない.
+        // 線の中心線(ローカル座標, 小数). 丸の中心をここにそろえる.
+        // 線は範囲のすぐ外側の太さw画素に描く(撮るときは選択画面を消すので, 線も丸も画像には入らない).
         // GDI+(PixelOffsetMode.None)では画素の中心が整数座標なので,
-        // 範囲の左端の画素がlocal.Xのとき, 1px外側の画素の中心はlocal.X - 1.
-        // 太さwの線を外側のw画素に収めると, 中心線は local.X - 1 - (w - 1) / 2 になる.
+        // 範囲の左端の画素がlocal.Xのとき, 外側w画素の中心は local.X - 1 - (w - 1) / 2 になる.
         private RectangleF BorderCenterLine(Rectangle local)
         {
             float c = 1f + (BorderWidth - 1) / 2f;
@@ -205,43 +206,56 @@ namespace Wakudori
                 (local.Right - 1 + c) - (local.Left - c), (local.Bottom - 1 + c) - (local.Top - c));
         }
 
+        // 線は辺ごとに画素の帯として塗る. 選んだ辺も太さと位置は変えず, 実線にするだけ(ずれて見えないように).
+        // 辺・角を選んでいるときは, ほかの辺を薄くして, 選んだ辺を目立たせる.
         private void DrawBorder(Graphics g, Rectangle local)
         {
-            RectangleF line = BorderCenterLine(local);
-            float w = BorderWidth;
+            int w = BorderWidth;
+            int dash = Scaled(Dash96);
+            FrameHandle sel = selection.SelectedHandle;
+            bool any = sel != FrameHandle.None;
             g.CompositingMode = CompositingMode.SourceOver;
-            using (Pen back = new Pen(BorderBackColor, w))
-            using (Pen dash = new Pen(BorderDashColor, w))
-            {
-                // DashPatternは線の太さを単位にするので, 太さで割って画素の長さをそろえる
-                float len = Scaled(Dash96) / w;
-                dash.DashPattern = new float[] { len, len };
-                g.DrawRectangle(back, line.X, line.Y, line.Width, line.Height);
-                g.DrawRectangle(dash, line.X, line.Y, line.Width, line.Height);
-            }
-
-            // 選んだ辺(角なら2辺)は, クレイ色の実線で示す. 矢印キーで動くのはこの辺. 中心線は破線と同じ.
-            FrameHandle h = selection.SelectedHandle;
-            if (h != FrameHandle.None)
-            {
-                using (Pen accent = new Pen(AccentColor, Math.Max(w + 1, Scaled(2))))
-                {
-                    if (MovesLeft(h)) g.DrawLine(accent, line.Left, line.Top, line.Left, line.Bottom);
-                    if (MovesRight(h)) g.DrawLine(accent, line.Right, line.Top, line.Right, line.Bottom);
-                    if (MovesTop(h)) g.DrawLine(accent, line.Left, line.Top, line.Right, line.Top);
-                    if (MovesBottom(h)) g.DrawLine(accent, line.Left, line.Bottom, line.Right, line.Bottom);
-                }
-            }
+            // 上下の帯は角の画素を含み, 左右の帯は含まない(同じ画素を2回塗らないため).
+            DrawEdge(g, new Rectangle(local.Left - w, local.Top - w, local.Width + w * 2, w), true, any, any && MovesTop(sel), dash);
+            DrawEdge(g, new Rectangle(local.Left - w, local.Bottom, local.Width + w * 2, w), true, any, any && MovesBottom(sel), dash);
+            DrawEdge(g, new Rectangle(local.Left - w, local.Top, w, local.Height), false, any, any && MovesLeft(sel), dash);
+            DrawEdge(g, new Rectangle(local.Right, local.Top, w, local.Height), false, any, any && MovesRight(sel), dash);
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // ハンドルはMacのように明るいグレーの小さな丸. 中心は線の中心線の上(四隅は線の交点).
-        // 選んだ辺の上の丸はクレイ色にする.
+        private static void DrawEdge(Graphics g, Rectangle band, bool horizontal, bool anySelected, bool selected, int dash)
+        {
+            bool faded = anySelected && !selected;
+            using (SolidBrush back = new SolidBrush(Fade(BorderBackColor, faded)))
+            using (SolidBrush line = new SolidBrush(Fade(BorderLineColor, faded)))
+            {
+                if (selected)
+                {
+                    g.FillRectangle(line, band);
+                    return;
+                }
+                g.FillRectangle(back, band);
+                int len = horizontal ? band.Width : band.Height;
+                for (int p = 0; p < len; p += dash * 2)
+                {
+                    int n = Math.Min(dash, len - p);
+                    if (horizontal) g.FillRectangle(line, band.X + p, band.Y, n, band.Height);
+                    else g.FillRectangle(line, band.X, band.Y + p, band.Width, n);
+                }
+            }
+        }
+
+        private static Color Fade(Color c, bool faded)
+        {
+            return faded ? Color.FromArgb((int)Math.Round(c.A * FadedOpacity), c) : c;
+        }
+
+        // 丸は四隅だけ(B9). 辺の中央の丸は端の文字や罫線を隠すのでやめた. 辺はどこでもつかめる.
+        // 中心は線の中心線の交点. 辺・角を選んでいるときは, 選んだ辺の上にない丸を薄くする.
         private void DrawHandles(Graphics g, Rectangle local)
         {
             RectangleF line = BorderCenterLine(local);
             float l = line.Left, r = line.Right, t = line.Top, b = line.Bottom;
-            // 丸は四隅だけ(B9). 辺の中央の丸は端の文字や罫線を隠すのでやめた. 辺はどこでもつかめる.
             PointF[] centers = new PointF[] { new PointF(l, t), new PointF(r, t), new PointF(r, b), new PointF(l, b) };
             FrameHandle[] handles = new FrameHandle[] { FrameHandle.TopLeft, FrameHandle.TopRight, FrameHandle.BottomRight, FrameHandle.BottomLeft };
 
@@ -249,14 +263,14 @@ namespace Wakudori
             FrameHandle sel = selection.SelectedHandle;
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush normal = new SolidBrush(HandleFillColor))
-            using (SolidBrush accent = new SolidBrush(AccentColor))
-            using (Pen border = new Pen(HandleBorderColor, HandleBorder96 * scale))
+            for (int i = 0; i < centers.Length; i++)
             {
-                for (int i = 0; i < centers.Length; i++)
+                bool faded = sel != FrameHandle.None && !OnSelectedEdge(handles[i], sel);
+                RectangleF rc = new RectangleF(centers[i].X - d / 2f, centers[i].Y - d / 2f, d, d);
+                using (SolidBrush fill = new SolidBrush(Fade(HandleFillColor, faded)))
+                using (Pen border = new Pen(Fade(HandleBorderColor, faded), HandleBorder96 * scale))
                 {
-                    RectangleF rc = new RectangleF(centers[i].X - d / 2f, centers[i].Y - d / 2f, d, d);
-                    g.FillEllipse(OnSelectedEdge(handles[i], sel) ? accent : normal, rc);
+                    g.FillEllipse(fill, rc);
                     g.DrawEllipse(border, rc);
                 }
             }
@@ -264,36 +278,27 @@ namespace Wakudori
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
-        // ハンドルhが, 選んだ辺(角なら2辺)の上にあるか
+        // 丸hが, 選んだ辺(角なら2辺)の上にあるか
         private static bool OnSelectedEdge(FrameHandle h, FrameHandle sel)
         {
             if (sel == FrameHandle.None) return false;
             if (h == sel) return true;
             bool selCorner = sel == FrameHandle.TopLeft || sel == FrameHandle.TopRight || sel == FrameHandle.BottomLeft || sel == FrameHandle.BottomRight;
-            if (selCorner) return false; // 角を選んだときは, その角の丸だけを塗る
-            // 辺を選んだときは, その辺の両端の角の丸も塗る
+            if (selCorner) return false; // 角を選んだときは, その角の丸だけ
+            // 辺を選んだときは, その辺の両端の丸
             return (MovesLeft(sel) && MovesLeft(h)) || (MovesRight(sel) && MovesRight(h))
                 || (MovesTop(sel) && MovesTop(h)) || (MovesBottom(sel) && MovesBottom(h));
         }
 
+        // 操作説明はアイボリーのカードにし, キーはキーボードのキーの形で示す(B12).
+        // A7で上部に範囲の一覧を出すので, 下部の中央に出す.
         private void DrawHelp(Graphics g)
         {
-            const string text = "辺・角のドラッグで大きさ, 内側のドラッグで位置 / 辺・角をクリックして矢印キーで調整 (Ctrl: 10px) / 辺・角以外のクリックかEscで解除 / Enter: 撮影 / Esc: 閉じる";
+            if (helpCard == null) helpCard = HelpCard.Create(scale);
             g.CompositingMode = CompositingMode.SourceOver;
-            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearTypeは透明な面だと汚くなる
-            using (Font font = new Font("Yu Gothic UI", 10f * scale, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush back = new SolidBrush(Color.FromArgb(220, 30, 30, 30)))
-            using (SolidBrush fore = new SolidBrush(Color.White))
-            {
-                SizeF size = g.MeasureString(text, font);
-                int pad = Scaled(6);
-                int w = (int)Math.Ceiling(size.Width) + pad * 2;
-                int h = (int)Math.Ceiling(size.Height) + pad * 2;
-                // A7で上部に範囲の一覧を出すので, 説明は下部の中央に出す.
-                Rectangle box = new Rectangle((bounds.Width - w) / 2, bounds.Height - h - Scaled(48), w, h);
-                g.FillRectangle(back, box);
-                g.DrawString(text, font, fore, box.X + pad, box.Y + pad);
-            }
+            int x = (bounds.Width - helpCard.Width) / 2;
+            int y = bounds.Height - helpCard.Height - Scaled(40);
+            g.DrawImage(helpCard, new Rectangle(x, y, helpCard.Width, helpCard.Height));
             g.CompositingMode = CompositingMode.SourceCopy;
         }
 
@@ -498,6 +503,11 @@ namespace Wakudori
             if (disposing)
             {
                 selection.Changed -= OnSelectionChanged;
+                if (helpCard != null)
+                {
+                    helpCard.Dispose();
+                    helpCard = null;
+                }
                 if (surface != null)
                 {
                     surface.Dispose();
