@@ -1,0 +1,48 @@
+using System;
+using System.IO;
+using System.Text;
+
+namespace Wakudori
+{
+    // ファイル名の組み立て(UIに依存しない)
+    internal static class FileNaming
+    {
+        private const string DefaultName = "screenshot";
+
+        // D2: <範囲名>_yyyyMMdd_HHmmss.png. 範囲名が空なら screenshot
+        public static string BuildFileName(string regionName, DateTime time)
+        {
+            string name = Sanitize(regionName);
+            if (name.Length == 0) name = DefaultName;
+            return name + "_" + time.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".png";
+        }
+
+        private static string Sanitize(string s)
+        {
+            if (s == null) return "";
+            s = s.Trim();
+            StringBuilder sb = new StringBuilder(s.Length);
+            foreach (char c in s)
+            {
+                if (c < ' ' || c == '\u007f' || "\\/:*?\"<>|".IndexOf(c) >= 0) sb.Append('_');
+                else sb.Append(c);
+            }
+            // 置換後の前後の空白・末尾のピリオドはWindowsで問題になるので除く
+            return sb.ToString().Trim().TrimEnd('.');
+        }
+
+        // 存在しないフルパスを返す: base.png, base_2.png, base_3.png ...
+        public static string UniquePath(string dir, string fileName, Func<string, bool> exists)
+        {
+            string path = Path.Combine(dir, fileName);
+            if (!exists(path)) return path;
+            string ext = Path.GetExtension(fileName);
+            string baseName = Path.GetFileNameWithoutExtension(fileName);
+            for (int i = 2; ; i++)
+            {
+                path = Path.Combine(dir, baseName + "_" + i + ext);
+                if (!exists(path)) return path;
+            }
+        }
+    }
+}
