@@ -1,6 +1,6 @@
 # テスト(Linux)と, csc.exeでのビルドとZIP(Windows).
 # v で始まるタグ(例: v0.1.0)をpushすると, ZIPをReleasesに置き,
-# リポジトリ直下の Wakudori.exe をそのexeに差し替えて main にcommitする(gitで取ってきた人がすぐ使えるように).
+# bin/Wakudori.exe をそのexeに差し替えて main にcommitする(gitで取ってきた人がすぐ使えるように).
 name: build
 
 on:
@@ -73,16 +73,16 @@ jobs:
         with:
           ref: main
           path: repo
-      - name: Commit Wakudori.exe to main
+      - name: Commit bin/Wakudori.exe to main
         run: |
-          unzip -o -j dist/*.zip '*/Wakudori.exe' -d repo
+          unzip -o -j dist/*.zip '*/Wakudori.exe' -d repo/bin
           cd repo
-          if git diff --quiet -- Wakudori.exe && git ls-files --error-unmatch Wakudori.exe >/dev/null 2>&1; then
-            echo "Wakudori.exe is up to date"
+          if git diff --quiet -- bin/Wakudori.exe && git ls-files --error-unmatch bin/Wakudori.exe >/dev/null 2>&1; then
+            echo "bin/Wakudori.exe is up to date"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Wakudori.exe
+          git add bin/Wakudori.exe
           git commit -m "Wakudori.exeを${{ github.ref_name }}にする"
           git push origin HEAD:main

@@ -991,9 +991,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
           <li class="card card--subtle"><span class="card__title">展開</span><span class="card__body">好きな場所(例: <code>ドキュメント\Wakudori</code>)に展開します.</span></li>
           <li class="card card--subtle"><span class="card__title">起動</span><span class="card__body"><code>Wakudori.exe</code>をダブルクリックします.</span></li>
         </ol>
-        <p><strong>gitを使う場合</strong>: cloneして, リポジトリの直下にある<code>Wakudori.exe</code>を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, 下の「WindowsによってPCが保護されました」も出ません.</p>
+        <p><strong>gitを使う場合</strong>: cloneして, <code>bin\Wakudori.exe</code>を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, 下の「WindowsによってPCが保護されました」も出ません.</p>
         <pre><code>git clone https://github.com/maonthemoon/wakudori.git</code></pre>
-        <p>新しい版にするときは, タスクトレイのメニューで「終了」してから<code>git pull</code>し, もう一度<code>Wakudori.exe</code>を起動します. 起動している間はexeを上書きできないので, <code>git pull</code>が失敗します.</p>
+        <p>新しい版にするときは, タスクトレイのメニューで「終了」してから<code>git pull</code>し, もう一度<code>bin\Wakudori.exe</code>を起動します. 起動している間はexeを上書きできないので, <code>git pull</code>が失敗します.</p>
+        <p>v0.1.0のころにcloneした人へ: exeはリポジトリの直下から<code>bin\Wakudori.exe</code>に移りました. <code>git pull</code>のあと<code>bin\Wakudori.exe</code>を一度起動すると, 「PC起動時に起動」の登録先も新しい場所に直ります.</p>
         <p>動作環境はWindows 11(Windows 10 22H2でも動作を確認)と, .NET Framework 4.8です. .NET Framework 4.8はWindowsに標準で入っているので, 追加のインストールは要りません.</p>
 
         <h3 id="smartscreen">初めて起動するとき</h3>

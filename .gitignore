@@ -1,4 +1,9 @@
-bin/
+# bin/にはリリースした版のWakudori.exeだけを置く(Actionsが差し替える). 手元のビルドはout/
+/bin/*
+!/bin/Wakudori.exe
+/out/
+tests/*/bin/
+__pycache__/
 dist/
 obj/
 *.pdb

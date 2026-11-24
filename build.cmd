@@ -10,14 +10,14 @@ if not exist "%CSC%" (
     goto :end
 )
 
-if not exist bin mkdir bin
+if not exist out mkdir out
 
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 /win32manifest:app.manifest /win32icon:app.ico /out:bin\Wakudori.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll src\*.cs
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 /win32manifest:app.manifest /win32icon:app.ico /out:out\Wakudori.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll src\*.cs
 if errorlevel 1 (
     echo Build FAILED
     set "RC=1"
 ) else (
-    echo Build succeeded: bin\Wakudori.exe
+    echo Build succeeded: out\Wakudori.exe
     set "RC=0"
 )
 

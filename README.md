@@ -26,13 +26,15 @@ Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要�
 
 ### gitを使う場合
 
-cloneして, リポジトリの直下にある`Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告も出ません.
+cloneして, `bin\Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告も出ません.
 
 ```sh
 git clone https://github.com/maonthemoon/wakudori.git
 ```
 
 新しい版にするときは, トレイのメニューで「終了」してから`git pull`し, もう一度起動します(起動している間はexeを上書きできないため).
+
+v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wakudori.exe`に移りました. `git pull`のあと`bin\Wakudori.exe`を一度起動すると, 「PC起動時に起動」の登録先も新しい場所に直ります.
 
 ### 自動起動とマニュアル
 
@@ -92,13 +94,13 @@ SDKのインストールは不要です. Windows標準の`csc.exe`(.NET Framewor
 
 1. このリポジトリをcloneするか, ZIPでダウンロードして展開します.
 2. `build.cmd`をダブルクリックします.
-3. `bin\Wakudori.exe`ができます.
+3. `out\Wakudori.exe`ができます(`bin\Wakudori.exe`はリリースした版なので上書きしません).
 
 C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
 配る用のZIPは`powershell -ExecutionPolicy Bypass -File tools\package.ps1`で`dist\`に作ります. バージョンは`src/AssemblyInfo.cs`で決めます.
 
-`v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます. あわせて, リポジトリ直下の`Wakudori.exe`をそのexeに差し替えて`main`にcommitします(`.github/workflows/build.yml`). `Wakudori.exe`は手で更新しません.
+`v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます. あわせて, `bin\Wakudori.exe`をそのexeに差し替えて`main`にcommitします(`.github/workflows/build.yml`). `bin\Wakudori.exe`は手で更新しません.
 
 ### テスト
 
