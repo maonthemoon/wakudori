@@ -162,7 +162,7 @@ namespace Wakudori
 
         // ---- マニュアル ----
 
-        private const string ManualUrl = "https://maonthemoon.github.io/wakudori/";
+        private const string ManualUrl = "https://maonthemoon.github.io/wakudori/manual.html";
 
         // exeの隣のmanual\index.htmlがあればそれを, なければWebのマニュアルを既定のブラウザーで開く
         private static void OpenManual()

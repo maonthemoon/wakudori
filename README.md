@@ -2,9 +2,16 @@
 
 **撮る範囲を保存して, 何度でも同じ範囲で撮れる**Windows用のスクリーンショットツール.
 
-![Wakudoriの使い方のイメージ: ホットキーで選択画面を開き, 辺をドラッグして調整し, 保存した範囲を呼び出してEnterで撮る](docs/images/demo.gif)
+<a href="https://maonthemoon.github.io/wakudori/">
+  <picture>
+    <source media="(max-width: 767px) and (prefers-color-scheme: dark)" srcset="docs/images/demo-narrow-dark.webp">
+    <source media="(max-width: 767px)" srcset="docs/images/demo-narrow-light.webp">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-dark.webp">
+    <img src="docs/images/demo-light.webp" alt="Wakudoriの動くデモ: 前回の範囲をそのまま撮る, 枠を合わせる, 名前を付けて保存する, 呼び出す, 一覧を整える">
+  </picture>
+</a>
 
-<sub>画像はイメージです(架空の画面に, Wakudoriの選択画面を同じ色と大きさで描いたもの).</sub>
+[紹介のページ](https://maonthemoon.github.io/wakudori/)では, 5つの場面をタブで選んで見られます.
 
 Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要があります. Wakudoriは前回の範囲を覚えていて, 範囲に名前を付けて保存もできます. 毎週のレポートのグラフ, 決まった画面の同じ部分など, 同じ範囲を繰り返し撮る作業に向いています.
 
@@ -40,7 +47,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 
 初めて起動したときに「PCの起動時に起動しますか」と聞かれます. あとからでも, トレイのメニューの「PC起動時に起動」で切り替えられます.
 
-詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/)にあります(ZIPの`manual\index.html`, トレイのメニューの「マニュアル」からも開けます).
+詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/manual.html)にあります(ZIPの`manual\index.html`, トレイのメニューの「マニュアル」からも開けます).
 
 ## 操作
 
@@ -116,7 +123,8 @@ dotnet run --project tests/RegionTests
 ### 画像の作り直し
 
 - アイコン: `tools/make_icon.py`を直して`uv run tools/make_icon.py`で`app.ico`を作り直します. タスクトレイのアイコン(`src/Theme.cs`の`CreateAppIconHandle`)も同じ絵に直します.
-- READMEの画像: `uv run tools/make_demo.py`で`docs/images/`に作り直します. 選択画面の色や大きさを変えたら, スクリプトの先頭の定数もそろえます.
+- 紹介のページ: GitHub Pagesのトップ(`docs/index.html`)は, 選択画面をHTMLで作り直した動くデモのページです. `./tools/build-manual.sh`でマニュアル(`docs/manual.html`)と一緒に作ります(元のファイルは開発用の文書と一緒に置いていて, このリポジトリには入っていません). 選択画面の色や大きさを変えたら, 元のファイルもそろえます.
+- READMEの動く画像: READMEではJavaScriptが動かないので, `uv run tools/make-demo.py`で, 紹介のページのデモを`docs/images/demo-*.webp`に書き出します(ライトとダーク, 広い幅と狭い幅の4枚. Playwrightのchromiumを使う). デモを変えたら作り直します.
 
 ## ライセンス
 
