@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Wakudori
@@ -19,10 +20,13 @@ namespace Wakudori
         private CaptureSession session;
         private bool dialogOpen;
         private bool exiting;
+        private bool askingExit;
+        private bool reportingError;
 
         public TrayApp(AppSettings settings)
         {
             this.settings = settings;
+            Application.ThreadException += OnThreadException;
 
             hotkeyWindow = new HotkeyWindow();
             hotkeyWindow.Pressed += delegate { OpenSelection(); };
@@ -186,9 +190,11 @@ namespace Wakudori
 
         private void UpdateTrayText()
         {
+            // 問い合わせのときに版が分かるよう, 版も出す
+            string name = "Wakudori " + Application.ProductVersion;
             string text = hotkeyWindow.IsRegistered && settings.Hotkey != null
-                ? "Wakudori (" + settings.Hotkey + ")"
-                : "Wakudori (ホットキー未登録)";
+                ? name + " (" + settings.Hotkey + ")"
+                : name + " (ホットキー未登録)";
             if (text.Length > 63) text = text.Substring(0, 63);
             tray.Text = text;
         }
@@ -239,6 +245,7 @@ namespace Wakudori
             {
                 session = null;
                 if (frozen != null) frozen.Dispose();
+                Program.LogError("OpenSelection", ex);
                 Notice.Show("選択画面を開けませんでした", ex.ToString(), NoticeKind.Error);
             }
         }
@@ -293,9 +300,68 @@ namespace Wakudori
             }
         }
 
+        // ---- 想定外のエラー ----
+
+        // 画面の操作中に起きた想定外のエラー. 記録して知らせ, 選択画面は閉じて動き続ける.
+        // 書き込みの画面は, 書き込みを失わないよう開いたままにする.
+        private void OnThreadException(object sender, ThreadExceptionEventArgs e)
+        {
+            bool logged = Program.LogError("ThreadException", e.Exception);
+            if (reportingError) return; // 知らせている間の次のエラーは, 記録だけ
+            reportingError = true;
+            CaptureSession open = session;
+            session = null; // 閉じるのに失敗しても, 次のホットキーで開き直せるように
+            try
+            {
+                if (open != null) open.Close(); // 全画面を覆ったままにしない
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("OnThreadException(Close)", ex);
+            }
+            try
+            {
+                Notice.Show("エラーが起きました", e.Exception.Message + "\r\n\r\nWakudoriはこのまま使えます."
+                    + (logged ? " 詳しい内容は, 設定フォルダーのerror.logに記録しました." : ""), NoticeKind.Error);
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("OnThreadException", ex);
+            }
+            finally
+            {
+                reportingError = false;
+            }
+        }
+
+        // 書き込みの途中なら, 捨ててよいか確かめる. 終了してよければtrue
+        private bool ConfirmDiscardMarks()
+        {
+            foreach (Form f in Application.OpenForms)
+            {
+                MarkForm mark = f as MarkForm;
+                if (mark == null || !mark.HasUnsavedMarks) continue;
+                bool dialogWasOpen = dialogOpen;
+                askingExit = true;
+                dialogOpen = true; // 確かめている間は, 選択画面を開かない
+                try
+                {
+                    return Notice.Confirm(mark, "書き込みを捨てて終了しますか?",
+                        "書き込みの途中の画像があります. 書き込む前の画像は, 保存フォルダーに残っています.", "終了する");
+                }
+                finally
+                {
+                    askingExit = false;
+                    dialogOpen = dialogWasOpen;
+                }
+            }
+            return true;
+        }
+
         private void Exit()
         {
-            if (exiting) return;
+            if (exiting || askingExit) return;
+            if (!ConfirmDiscardMarks()) return;
             exiting = true;
             if (session != null) session.Close();
             tray.Visible = false;

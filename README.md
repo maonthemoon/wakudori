@@ -99,7 +99,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 
 ### タスクトレイ
 
-アイコンのクリックで選択画面を開きます. 右クリックのメニューには, 撮影, ホットキー再登録, 画像保存フォルダーを開く, 設定フォルダーを開く, PC起動時に起動, マニュアル, 終了があります.
+アイコンのクリックで選択画面を開きます. 右クリックのメニューには, 撮影, ホットキー再登録, 画像保存フォルダーを開く, 設定フォルダーを開く, PC起動時に起動, マニュアル, 終了があります. アイコンにカーソルを乗せると, バージョンとホットキーが出ます.
 
 ## 保存されるもの
 
@@ -107,6 +107,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 |---|---|
 | `ピクチャ\Screenshots\` | 撮った画像. `<範囲の名前>_yyyyMMdd_HHmmss.png`(名前のない範囲は`screenshot_...`) |
 | `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`)と画像の保存先(`saveDir`) |
+| `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
 
 アンインストールは, トレイのメニューで「PC起動時に起動」を外して「終了」してから, `Wakudori.exe`のフォルダーと`%APPDATA%\Wakudori`を消すだけです.
@@ -134,13 +135,14 @@ C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
 ### テスト
 
-WinFormsに依存しない部分(枠の計算, ファイル名, ホットキーの文字列, `regions.json`の読み書き)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
+WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラーの記録, ホットキーの文字列, `regions.json`の読み書き, 書き込みの並び)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
 
 ```sh
 dotnet run --project tests/SelectionTests
 dotnet run --project tests/OutputTests
 dotnet run --project tests/HotkeyTests
 dotnet run --project tests/RegionTests
+dotnet run --project tests/MarkTests
 ```
 
 ### 画像の作り直し

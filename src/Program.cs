@@ -27,6 +27,13 @@ namespace Wakudori
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            // 想定外のエラーを記録する. 画面の操作中のものは, 知らせて動き続ける(TrayAppが受ける).
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                LogError("UnhandledException", e.ExceptionObject as Exception);
+            };
+
             bool createdNew;
             using (Mutex mutex = new Mutex(true, MutexName, out createdNew))
             {
@@ -49,11 +56,18 @@ namespace Wakudori
                 }
                 catch (Exception ex)
                 {
+                    LogError("Main", ex);
                     Notice.Show("エラーで終了します", ex.ToString(), NoticeKind.Error);
                     return 1;
                 }
                 return 0;
             }
+        }
+
+        // 記録できたらtrue
+        public static bool LogError(string where, Exception ex)
+        {
+            return ErrorLog.Write(ErrorLog.DefaultPath, Application.ProductVersion, where, ex, DateTime.Now);
         }
 
         public static uint GetMonitorDpi(Rectangle bounds)
@@ -119,6 +133,19 @@ namespace Wakudori
             Rectangle initial = Selection.InitialFrame(monitors, store.Last, cursor, defaultFrameSize);
             selection = new Selection(monitors, initial);
 
+            try
+            {
+                OpenForms(cursor);
+            }
+            catch
+            {
+                CloseAll(); // 途中まで出した選択画面を残さない
+                throw;
+            }
+        }
+
+        private void OpenForms(Point cursor)
+        {
             for (int i = 0; i < monitors.Length; i++)
             {
                 // 保存した範囲の一覧は, 開いたときにマウスカーソルがあるモニターにだけ出す(A7).
@@ -482,7 +509,8 @@ namespace Wakudori
             }
             catch (Exception ex)
             {
-                Notice.Show("撮影または保存に失敗しました", ex.Message, NoticeKind.Error);
+                Program.LogError("Capture", ex);
+                Notice.Show("撮影できませんでした", ex.Message, NoticeKind.Error);
             }
             CloseAll();
         }
@@ -493,16 +521,20 @@ namespace Wakudori
             Bitmap bmp = live ? CaptureOutput.CaptureScreen(frame) : CropFrozen(frame);
             try
             {
-                // D1: クリップボードとファイルの両方に出す. D4: 通知は出さない.
+                // D1: ファイルとクリップボードの両方に出す. 片方が失敗しても, もう片方には出す. D4: 成功の通知は出さない.
                 // ファイル名は<範囲名>_..., 名前がなければscreenshot_...(D2, D5).
                 // 書き込むときは, 隠す前の画像がクリップボードの履歴に残らないよう, 書き終えたときに出す.
-                if (!edit) CaptureOutput.CopyToClipboard(bmp);
-                string path = CaptureOutput.SavePng(bmp, saveDir, regionName, now);
-                if (saveLast) SaveLast(frame);
-                if (edit)
+                Bitmap image = bmp;
+                Action copy = null;
+                if (!edit) copy = delegate { CaptureOutput.CopyToClipboard(image); };
+                OutputSteps result = OutputSteps.Run(
+                    delegate { return CaptureOutput.SavePng(image, saveDir, regionName, now); }, copy);
+                if (saveLast && result.AnyDone) SaveLast(frame);
+                if (result.Heading != null) Notice.Show(result.Heading, result.Body, NoticeKind.Error);
+                if (edit && result.Path != null)
                 {
                     Rectangle monitor = MonitorOf(frame);
-                    MarkForm form = new MarkForm(bmp, frame, monitor, Program.GetMonitorDpi(monitor) / 96f, path);
+                    MarkForm form = new MarkForm(bmp, frame, monitor, Program.GetMonitorDpi(monitor) / 96f, result.Path);
                     bmp = null; // 書き込みの画面が破棄する
                     form.Show();
                 }

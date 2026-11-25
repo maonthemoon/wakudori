@@ -75,6 +75,12 @@ namespace Wakudori
             Bounds = monitor;
         }
 
+        // まだ出していない書き込みがあるか(終了の前に確かめるため)
+        public bool HasUnsavedMarks
+        {
+            get { return current != null || marks.Count > 0; }
+        }
+
         private int S(int px96)
         {
             return Math.Max(1, (int)Math.Round(px96 * scale));
@@ -397,21 +403,35 @@ namespace Wakudori
                 {
                     using (Bitmap bmp = canvas.Clone(new Rectangle(0, 0, canvas.Width, canvas.Height), PixelFormat.Format32bppArgb))
                     {
-                        CaptureOutput.CopyToClipboard(bmp);
-                        CaptureOutput.SaveEditedPng(bmp, originalPath);
+                        Bitmap image = bmp;
+                        OutputSteps result = OutputSteps.Run(
+                            delegate { return CaptureOutput.SaveEditedPng(image, originalPath); },
+                            delegate { CaptureOutput.CopyToClipboard(image); });
+                        if (result.Heading != null) ShowError(result.Heading, result.Body);
+                        if (result.Path == null)
+                        {
+                            finishing = false; // ファイルに残せなかったので, 書き込みが消えないよう開いたままにする
+                            return;
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                // 書き込みが消えないよう, 画面は開いたままにする. お知らせが隠れないよう, いったん最前面をやめる
-                TopMost = false;
-                Notice.Show("書き込みを保存できませんでした", ex.Message, NoticeKind.Error);
-                TopMost = true;
+                // 書き込みが消えないよう, 画面は開いたままにする
+                ShowError("書き込みを出せませんでした", ex.Message);
                 finishing = false;
                 return;
             }
             Close();
+        }
+
+        // お知らせが隠れないよう, いったん最前面をやめる
+        private void ShowError(string heading, string body)
+        {
+            TopMost = false;
+            Notice.Show(heading, body, NoticeKind.Error);
+            TopMost = true;
         }
 
         protected override void Dispose(bool disposing)

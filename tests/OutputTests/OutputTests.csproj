@@ -7,5 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/FileNaming.cs" />
+    <Compile Include="../../src/OutputSteps.cs" />
+    <Compile Include="../../src/ErrorLog.cs" />
   </ItemGroup>
 </Project>
