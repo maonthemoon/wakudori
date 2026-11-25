@@ -77,6 +77,7 @@ namespace Wakudori
         private readonly bool showList;
         private List<int> rowItems;         // 1行に並べる範囲の番号
         private List<Rectangle> rowRects;   // その位置(ローカル座標). nullなら作り直す
+        private int laidOutCount;           // 並べたときの範囲の数. 今の数と違えば, 並びは古い
         private Rectangle moreRect;         // 「+N」のチップ. 入りきるときはEmpty
         private List<int> menuItems = new List<int>(); // 「+N」で開く一覧の範囲の番号
         private bool menuOpen;
@@ -422,6 +423,7 @@ namespace Wakudori
         public Rectangle BeginEdit(SavedRegion region, int textWidth)
         {
             editingRegion = regions.IndexOf(region);
+            if (editingRegion < 0) return Rectangle.Empty;
             editingInMenu = menuOpen && menuItems.Contains(editingRegion);
             editActive = IsActive(editingRegion);
             editTextWidth = textWidth;
@@ -479,6 +481,7 @@ namespace Wakudori
 
         private void LayoutChips(Graphics g)
         {
+            laidOutCount = regions.Count;
             rowItems = new List<int>();
             rowRects = new List<Rectangle>();
             menuItems = new List<int>();
@@ -544,7 +547,13 @@ namespace Wakudori
 
         private void DrawRegionList(Graphics g)
         {
-            if (rowRects == null) LayoutChips(g);
+            if (rowRects == null || laidOutCount != regions.Count)
+            {
+                // 範囲が減ったあとの古い番号で描かない
+                if (pressRegion >= regions.Count) { pressRegion = -1; dragMode = DragMode.None; }
+                if (editingRegion >= regions.Count) editingRegion = -1;
+                LayoutChips(g);
+            }
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Half;
@@ -824,7 +833,7 @@ namespace Wakudori
 
         private ListHit HitList(Point local)
         {
-            if (!HasList || rowRects == null) return ListHit.None;
+            if (!HasList || rowRects == null || laidOutCount != regions.Count) return ListHit.None;
             if (menuOpen)
             {
                 int visible;

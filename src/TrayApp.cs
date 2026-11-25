@@ -309,6 +309,8 @@ namespace Wakudori
             bool logged = Program.LogError("ThreadException", e.Exception);
             if (reportingError) return; // 知らせている間の次のエラーは, 記録だけ
             reportingError = true;
+            bool dialogWasOpen = dialogOpen;
+            dialogOpen = true; // 知らせている間は, 選択画面を開かない(お知らせの上に重なるため)
             CaptureSession open = session;
             session = null; // 閉じるのに失敗しても, 次のホットキーで開き直せるように
             try
@@ -331,6 +333,7 @@ namespace Wakudori
             finally
             {
                 reportingError = false;
+                dialogOpen = dialogWasOpen;
             }
         }
 

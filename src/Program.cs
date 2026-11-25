@@ -99,6 +99,7 @@ namespace Wakudori
         private readonly Size defaultFrameSize;
         private bool capturing;
         private bool closed;
+        private bool deleting; // 削除してよいか確かめている最中
         // 一覧の名前に乗せたときの下見(枠ごと動かす). 下見の前の枠と名前を覚えておき, 離れたら戻す
         private bool previewing;
         private Rectangle frameBeforePreview;
@@ -364,22 +365,32 @@ namespace Wakudori
 
         private void DeleteRegion(Form owner, SavedRegion region)
         {
-            if (capturing || closed || !store.Regions.Contains(region)) return;
+            // ×のダブルクリックで2回届いても, 確かめるのは1回だけ
+            if (capturing || closed || deleting || !store.Regions.Contains(region)) return;
             if (!CheckCanSave()) return;
-            bool ok = Notice.Confirm(owner, "「" + region.Name + "」を削除しますか?",
-                "保存した範囲の一覧から消します. これまでに撮った画像は消えません.", "削除");
-            if (!ok) { owner.Activate(); return; }
-            int index = store.Regions.IndexOf(region);
-            store.Regions.RemoveAt(index);
-            if (!TrySaveStore())
+            bool ok;
+            deleting = true;
+            try
             {
-                store.Regions.Insert(index, region);
+                ok = Notice.Confirm(owner, "「" + region.Name + "」を削除しますか?",
+                    "保存した範囲の一覧から消します. これまでに撮った画像は消えません.", "削除");
             }
-            else if (selection.RegionName == region.Name)
+            finally
+            {
+                deleting = false;
+            }
+            if (closed) return;
+            int index = store.Regions.IndexOf(region);
+            if (!ok || index < 0) { owner.Activate(); return; }
+            store.Regions.RemoveAt(index);
+            bool saved = TrySaveStore();
+            if (!saved) store.Regions.Insert(index, region);
+            // 一覧の並びを作り直してから, 呼び出し中の名前を外す(外すと選択画面が描き直されるため)
+            foreach (OverlayForm f in forms) f.RefreshRegions();
+            if (saved && selection.RegionName == region.Name)
             {
                 selection.NameCurrent(null); // 枠はそのまま, 名前のない範囲にする
             }
-            foreach (OverlayForm f in forms) f.RefreshRegions();
             owner.Activate();
         }
 
