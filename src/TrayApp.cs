@@ -162,20 +162,20 @@ namespace Wakudori
 
         // ---- マニュアル ----
 
-        private const string ManualUrl = "https://maonthemoon.github.io/wakudori/manual.html";
-
-        // 既定のブラウザーで開く. exeの隣のmanual\index.html(ZIP), リポジトリのdocs\manual.html(exeはbin\かout\にある),
-        // どちらもなければWebのマニュアル.
+        // docs\manual.htmlを既定のブラウザーで開く. Webのマニュアルは見にいかない.
+        // ZIPではexeの隣のdocs, リポジトリではexe(bin\かout\)の1つ上のdocsにある.
         private static void OpenManual()
         {
-            string target = ManualUrl;
+            string dir = Path.GetDirectoryName(Application.ExecutablePath);
+            string target = Path.Combine(dir, "docs", "manual.html");
+            if (!File.Exists(target)) target = Path.GetFullPath(Path.Combine(dir, "..", "docs", "manual.html"));
+            if (!File.Exists(target))
+            {
+                Notice.Show("マニュアルが見つかりません", "exeと一緒に配られたdocsフォルダー(docs\\manual.html)が必要です. exeだけを別の場所へ移したときは, docsフォルダーもexeの隣に置いてください.", NoticeKind.Warning);
+                return;
+            }
             try
             {
-                string dir = Path.GetDirectoryName(Application.ExecutablePath);
-                string zip = Path.Combine(dir, "manual", "index.html");
-                string repo = Path.GetFullPath(Path.Combine(dir, "..", "docs", "manual.html"));
-                if (File.Exists(zip)) target = zip;
-                else if (File.Exists(repo)) target = repo;
                 Process.Start(target);
             }
             catch (Exception ex)
