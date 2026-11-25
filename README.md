@@ -49,7 +49,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 
 初めて起動したときに「PCの起動時に起動しますか」と聞かれます. あとからでも, トレイのメニューの「PC起動時に起動」で切り替えられます.
 
-詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/manual.html)にあります(ZIPの`manual\index.html`, トレイのメニューの「マニュアル」からも開けます).
+詳しい使い方は[マニュアル](https://maonthemoon.github.io/wakudori/manual.html)にあります(トレイのメニューの「マニュアル」からも開けます. ZIPなら`manual\index.html`, gitなら`docs\manual.html`が開きます).
 
 ## 操作
 
