@@ -31,6 +31,12 @@ namespace Wakudori
             return sb.ToString().Trim().TrimEnd('.');
         }
 
+        // 書き込んだ画像の名前: <元の名前>_edit.png
+        public static string BuildEditName(string originalPath)
+        {
+            return Path.GetFileNameWithoutExtension(originalPath) + "_edit.png";
+        }
+
         // 存在しないフルパスを返す: base.png, base_2.png, base_3.png ...
         public static string UniquePath(string dir, string fileName, Func<string, bool> exists)
         {

@@ -64,5 +64,15 @@ namespace Wakudori
             bmp.Save(path, ImageFormat.Png);
             return path;
         }
+
+        // 書き込んだ画像を, 元の画像と同じフォルダーに<元の名前>_edit.pngで保存する(H5). 元の画像は変えない
+        public static string SaveEditedPng(Bitmap bmp, string originalPath)
+        {
+            string dir = Path.GetDirectoryName(originalPath);
+            Directory.CreateDirectory(dir);
+            string path = FileNaming.UniquePath(dir, FileNaming.BuildEditName(originalPath), new Func<string, bool>(File.Exists));
+            bmp.Save(path, ImageFormat.Png);
+            return path;
+        }
     }
 }

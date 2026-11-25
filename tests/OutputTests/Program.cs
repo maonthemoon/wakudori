@@ -36,6 +36,9 @@ internal static class Program
         set.Add(p2);
         Eq("unique 3", System.IO.Path.Combine("d", "x_3.png"), FileNaming.UniquePath("d", "x.png", ex));
 
+        Eq("edit name", "会議_20261120_090507_edit.png", FileNaming.BuildEditName(System.IO.Path.Combine("d", "会議_20261120_090507.png")));
+        Eq("edit name with dot", "v1.2_20261120_090507_2_edit.png", FileNaming.BuildEditName("v1.2_20261120_090507_2.png"));
+
         Console.WriteLine(fail == 0 ? "ALL PASS" : fail + " FAILED");
         return fail == 0 ? 0 : 1;
     }

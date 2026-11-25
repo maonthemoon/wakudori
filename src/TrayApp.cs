@@ -201,24 +201,19 @@ namespace Wakudori
             }
 
             // まず画面を撮る. 選択画面や知らせを出すと, 開いていたメニューが閉じるため.
-            FreezeReport report = new FreezeReport();
             Rectangle[] monitors = MonitorBounds();
             FrozenScreens frozen = null;
             try
             {
                 frozen = FrozenScreens.Capture(monitors);
-                report.Mark("captured");
-                report.Menu = MenuCloser.CloseActiveMenu();
-                report.Mark("menu handled");
+                MenuCloser.CloseActiveMenu();
                 frozen.Prepare(OverlayForm.DimColor);
-                report.Mark("dimmed");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // 撮れなければ, これまでどおり動いている画面の上で選ぶ.
                 if (frozen != null) frozen.Dispose();
                 frozen = null;
-                report.Error = ex.ToString();
             }
 
             // 保存先は開くたびに読み直す(手で書き換えても再起動しなくてよい). ホットキーは読み直さない.
@@ -233,7 +228,7 @@ namespace Wakudori
 
             try
             {
-                session = new CaptureSession(settings.SaveDir, DefaultFrameSize, monitors, frozen, report);
+                session = new CaptureSession(settings.SaveDir, DefaultFrameSize, monitors, frozen);
                 session.Finished += delegate { session = null; };
             }
             catch (Exception ex)

@@ -33,7 +33,7 @@ namespace Wakudori
         private static readonly Color LineColor = Color.FromArgb(242, 0xFA, 0xF9, 0xF5);
         private static readonly Color KnobColor = Color.FromArgb(255, 0xFA, 0xF9, 0xF5);
 
-        private enum DragMode { None, Move, FrameHandle, ListPress, ListDrag } // ListPress: 名前を押した(まだ動かしていない)
+        private enum DragMode { None, Move, FrameHandle, ListPress, ListDrag, NewPress, New } // ListPress: 名前を押した(まだ動かしていない). NewPress: 新しい枠を引き始める位置を押した(まだ動かしていない)
 
         private readonly int monitorIndex;
         private readonly Rectangle bounds;  // モニターの範囲(仮想スクリーン座標, 物理ピクセル)
@@ -46,6 +46,7 @@ namespace Wakudori
         private FrameHandle dragHandle = FrameHandle.None;
         private Point dragStart;
         private Rectangle frameAtDragStart;
+        private string nameAtDragStart;
 
         private IntPtr memDC = IntPtr.Zero;
         private IntPtr hBitmap = IntPtr.Zero;
@@ -54,16 +55,13 @@ namespace Wakudori
         private IntPtr surfaceBits = IntPtr.Zero;
         private readonly FrozenScreen frozen; // 開いた瞬間に撮った, 止めた絵
         private bool live;                  // trueなら止めた絵を出さず, 動いている画面を透かして見せる
-        // 試作: 描画にかかった時間
-        public int PresentCount;
-        public double PresentTotalMs;
-        public double PresentMaxMs;
-        public string FirstKey;             // 最初に届いたキーと時刻の報告用
-        public event EventHandler FirstKeyArrived;
 
         public bool AllowClose;             // trueのときだけ閉じられる(Alt+F4で1枚だけ閉じないように)
 
         public event EventHandler CaptureRequested;
+        public event EventHandler EditRequested;              // E: 撮って書き込む(H5)
+        public event EventHandler FullScreenRequested;        // F: モニター全体を撮る(H2)
+        public event EventHandler FullScreenEditRequested;    // Shift+F: モニター全体を撮って書き込む
         public event EventHandler CancelRequested;
         public event EventHandler LiveToggleRequested;        // Space(止めた画面と動いている画面の切り替え)
         public event EventHandler SaveRequested;              // Ctrl+S(A3)
@@ -112,6 +110,7 @@ namespace Wakudori
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
             AutoScaleMode = AutoScaleMode.None;
+            ImeMode = ImeMode.Disable; // 日本語入力がオンでも, EやFなどのキーが届くように
             Text = "Wakudori";
             Location = bounds.Location;
             Size = bounds.Size;
@@ -918,7 +917,6 @@ namespace Wakudori
         private void Present()
         {
             if (surface == null || !IsHandleCreated) return;
-            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
             Render();
             NativeMethods.GdiFlush();
 
@@ -939,10 +937,6 @@ namespace Wakudori
             {
                 NativeMethods.ReleaseDC(IntPtr.Zero, screenDC);
             }
-            double ms = watch.Elapsed.TotalMilliseconds;
-            PresentCount++;
-            PresentTotalMs += ms;
-            if (ms > PresentMaxMs) PresentMaxMs = ms;
         }
 
         private Rectangle ToLocal(Rectangle r)
@@ -1004,14 +998,15 @@ namespace Wakudori
             Rectangle frame = selection.Frame;
 
             FrameHandle hit = Selection.HitTest(frame, p, Scaled(Grip96));
-            if (hit != FrameHandle.None)
+            bool forceNew = (ModifierKeys & Keys.Shift) == Keys.Shift; // Shift+ドラッグなら, 枠の中や辺の上からでも新しい枠を引ける
+            if (hit != FrameHandle.None && !forceNew)
             {
                 // 辺・角をクリックすると選んだ状態になり, そのままドラッグすると辺を動かす(Macのように8点以外もつかめる).
                 selection.SelectedHandle = hit;
                 dragMode = DragMode.FrameHandle;
                 dragHandle = hit;
             }
-            else if (frame.Contains(p))
+            else if (frame.Contains(p) && !forceNew)
             {
                 // 枠の内側をクリックするとハンドルの選択を外し, ドラッグすると枠全体を動かす.
                 selection.SelectedHandle = FrameHandle.None;
@@ -1019,9 +1014,12 @@ namespace Wakudori
             }
             else
             {
-                // 枠の外をクリックしても選択を外す. 枠の外のドラッグで範囲を選び直す操作は作らない(B3).
+                // 枠の外をクリックすると選択を外し, ドラッグすると新しい枠を引く(H1).
                 selection.SelectedHandle = FrameHandle.None;
-                return;
+                selection.HoverHandle = FrameHandle.None;
+                dragMode = DragMode.NewPress;
+                pressPoint = e.Location;
+                nameAtDragStart = selection.RegionName;
             }
             dragStart = p;
             frameAtDragStart = frame;
@@ -1050,6 +1048,18 @@ namespace Wakudori
                 listDragPos = e.Location;
                 dropBefore = DropTarget(e.Location, out dropInRow);
                 Present();
+                return;
+            }
+
+            if (dragMode == DragMode.NewPress)
+            {
+                // 少し動かすまではクリックと見なす
+                if (Math.Abs(e.X - pressPoint.X) <= Scaled(4) && Math.Abs(e.Y - pressPoint.Y) <= Scaled(4)) return;
+                dragMode = DragMode.New;
+            }
+            if (dragMode == DragMode.New)
+            {
+                selection.DrawNew(dragStart, p);
                 return;
             }
 
@@ -1136,9 +1146,24 @@ namespace Wakudori
             CloseMenu();
         }
 
+        // 新しい枠を引くのをやめて, 引く前の枠と名前に戻す
+        private void CancelNewFrame()
+        {
+            bool drawn = dragMode == DragMode.New;
+            dragMode = DragMode.None;
+            Capture = false;
+            if (drawn) selection.SetNamedFrame(frameAtDragStart, nameAtDragStart);
+        }
+
         private void UpdateCursor(Point p)
         {
             Rectangle frame = selection.Frame;
+            if ((ModifierKeys & Keys.Shift) == Keys.Shift)
+            {
+                selection.HoverHandle = FrameHandle.None;
+                if (Cursor != Cursors.Cross) Cursor = Cursors.Cross;
+                return;
+            }
             FrameHandle hit = Selection.HitTest(frame, p, Scaled(Grip96));
             selection.HoverHandle = hit; // つかむ場所の予告
             Cursor c;
@@ -1152,7 +1177,7 @@ namespace Wakudori
                 case FrameHandle.Bottom: c = Cursors.SizeNS; break;
                 case FrameHandle.Left:
                 case FrameHandle.Right: c = Cursors.SizeWE; break;
-                default: c = frame.Contains(p) ? Cursors.SizeAll : Cursors.Default; break;
+                default: c = frame.Contains(p) ? Cursors.SizeAll : Cursors.Cross; break;
             }
             if (Cursor != c) Cursor = c;
         }
@@ -1171,10 +1196,11 @@ namespace Wakudori
             bool ctrl = (keyData & Keys.Control) == Keys.Control;
             int step = ctrl ? 10 : 1;
 
-            if (FirstKey == null)
+            // 新しい枠を引いている間は, Escだけ受ける(引くのをやめて元の枠に戻す)
+            if (dragMode == DragMode.NewPress || dragMode == DragMode.New)
             {
-                FirstKey = key.ToString();
-                if (FirstKeyArrived != null) FirstKeyArrived(this, EventArgs.Empty);
+                if (key == Keys.Escape) CancelNewFrame();
+                return true;
             }
 
             // 数字キー1〜9: 一覧の先頭9個を呼び出す(A4)
@@ -1191,12 +1217,28 @@ namespace Wakudori
                 return true;
             }
 
-            // Enterは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
-            if (key != Keys.Enter && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
+            // EnterとEは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
+            if (key != Keys.Enter && keyData != Keys.E && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
 
             if (keyData == Keys.Escape && menuOpen)
             {
                 CloseMenu(); // まず「+N」の一覧を閉じる
+                return true;
+            }
+
+            if (keyData == Keys.E)
+            {
+                if (dragMode == DragMode.None && EditRequested != null) EditRequested(this, EventArgs.Empty);
+                return true;
+            }
+            if (keyData == Keys.F)
+            {
+                if (dragMode == DragMode.None && FullScreenRequested != null) FullScreenRequested(this, EventArgs.Empty);
+                return true;
+            }
+            if (keyData == (Keys.Shift | Keys.F))
+            {
+                if (dragMode == DragMode.None && FullScreenEditRequested != null) FullScreenEditRequested(this, EventArgs.Empty);
                 return true;
             }
 

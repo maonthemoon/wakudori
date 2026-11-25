@@ -11,24 +11,21 @@ namespace Wakudori
     {
         private const int WaitMs = 200;
 
-        // メニューが開いていれば閉じるよう頼み, 閉じるのを少し待つ. 結果を試作のレポート用の文字列で返す
-        public static string CloseActiveMenu()
+        // メニューが開いていれば閉じるよう頼み, 閉じるのを少し待つ
+        public static void CloseActiveMenu()
         {
             NativeMethods.GUITHREADINFO info;
-            if (!TryGetInfo(out info)) return "unknown";
-            if (!InMenu(info)) return "none";
+            if (!TryGetInfo(out info) || !InMenu(info)) return;
             IntPtr owner = info.hwndMenuOwner != IntPtr.Zero ? info.hwndMenuOwner : info.hwndActive;
-            if (owner == IntPtr.Zero) return "open, no owner";
+            if (owner == IntPtr.Zero) return;
             NativeMethods.PostMessage(owner, NativeMethods.WM_CANCELMODE, IntPtr.Zero, IntPtr.Zero);
 
             Stopwatch sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < WaitMs)
             {
                 Thread.Sleep(10);
-                if (!TryGetInfo(out info)) return "unknown after request";
-                if (!InMenu(info)) return "closed in " + sw.ElapsedMilliseconds + " ms";
+                if (!TryGetInfo(out info) || !InMenu(info)) return;
             }
-            return "still open after " + WaitMs + " ms";
         }
 
         private static bool TryGetInfo(out NativeMethods.GUITHREADINFO info)

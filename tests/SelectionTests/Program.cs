@@ -175,6 +175,27 @@ internal static class Program
             n.MoveTo(new Point(1, 20), new Point(50, 50));
             Check(n.RegionName == null, "MoveTo clears name");
         }
+        // DrawNew(H1)
+        {
+            Selection d = new Selection(two, new Rectangle(10, 10, 100, 100));
+            d.DrawNew(new Point(200, 300), new Point(299, 349));
+            Eq(new Rectangle(200, 300, 100, 50), d.Frame, "DrawNew: both ends included");
+            d.DrawNew(new Point(299, 349), new Point(200, 300));
+            Eq(new Rectangle(200, 300, 100, 50), d.Frame, "DrawNew: reversed is the same");
+            d.DrawNew(new Point(200, 300), new Point(202, 298));
+            Eq(new Rectangle(200, 285, 16, 16), d.Frame, "DrawNew: min size grows toward the drag");
+            d.DrawNew(new Point(1915, 1075), new Point(1919, 1079));
+            Eq(new Rectangle(1904, 1064, 16, 16), d.Frame, "DrawNew: min size at the corner stays inside");
+            d.DrawNew(new Point(0, 0), new Point(5000, 5000));
+            Eq(a, d.Frame, "DrawNew: can cover the whole monitor");
+            d.DrawNew(new Point(50, 50), new Point(-500, 149));
+            Eq(new Rectangle(0, 50, 51, 100), d.Frame, "DrawNew: stays in the monitor where it started (C6)");
+            d.DrawNew(new Point(-1000, 100), new Point(500, 199));
+            Eq(new Rectangle(-1000, 100, 1000, 100), d.Frame, "DrawNew: negative monitor");
+            d.SetNamedFrame(new Rectangle(10, 20, 300, 200), "会議");
+            d.DrawNew(new Point(400, 400), new Point(500, 500));
+            Check(d.RegionName == null, "DrawNew clears name (D5)");
+        }
         Rectangle fr = new Rectangle(100, 100, 200, 100);
         Rectangle[] hr = Selection.HandleRects(fr, 10);
         Check(hr.Length == 8, "HandleRects count");

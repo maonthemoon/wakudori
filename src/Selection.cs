@@ -106,6 +106,30 @@ namespace Wakudori
             SetFrameInternal(Fit(r, m));
         }
 
+        // 新しい枠を引く(H1): anchorからpointerまで. anchorのモニターの中に収め(C6), 両端の画素を含める.
+        // MinSizeより小さいときは, 引いた向きへ広げる
+        public void DrawNew(Point anchor, Point pointer)
+        {
+            Rectangle m = NearestMonitor(monitors, anchor);
+            int l, r, t, b;
+            Span(anchor.X, pointer.X, m.Left, m.Right, out l, out r);
+            Span(anchor.Y, pointer.Y, m.Top, m.Bottom, out t, out b);
+            SetFrameInternal(Rectangle.FromLTRB(l, t, r, b));
+        }
+
+        private static void Span(int from, int to, int min, int max, out int start, out int end)
+        {
+            from = Clamp(from, min, max - 1);
+            to = Clamp(to, min, max - 1);
+            start = Math.Min(from, to);
+            end = Math.Max(from, to) + 1;
+            if (end - start >= MinSize) return;
+            if (to >= from) end = start + MinSize;
+            else start = end - MinSize;
+            if (end > max) { end = max; start = Math.Max(min, max - MinSize); }
+            if (start < min) { start = min; end = Math.Min(max, min + MinSize); }
+        }
+
         // ハンドルの辺を動かす. 動かす辺は今のモニター内かつMinSize以上に留め, 反対の辺は動かさない
         public void MoveEdges(FrameHandle h, int dx, int dy)
         {
