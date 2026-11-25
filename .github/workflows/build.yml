@@ -75,7 +75,7 @@ jobs:
           path: repo
       - name: Commit bin/Wakudori.exe to main
         run: |
-          unzip -o -j dist/*.zip '*/Wakudori.exe' -d repo/bin
+          unzip -o -j dist/*.zip Wakudori.exe -d repo/bin
           cd repo
           if git diff --quiet -- bin/Wakudori.exe && git ls-files --error-unmatch bin/Wakudori.exe >/dev/null 2>&1; then
             echo "bin/Wakudori.exe is up to date"

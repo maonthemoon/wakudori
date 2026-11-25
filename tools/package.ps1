@@ -27,7 +27,8 @@ Copy-Item "docs\manual.html" "$stage\docs\manual.html"
 
 $zip = Join-Path "dist" "$name.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path $stage -DestinationPath $zip
+# フォルダーごとではなく中身だけを入れる(Windowsの「すべて展開」がZIP名のフォルダーを作るので, 2重になるため)
+Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Write-Host "Created $zip"
 if ($env:GITHUB_OUTPUT) {
     "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
