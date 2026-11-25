@@ -11,8 +11,10 @@ READMEではJavaScriptが動かないので, デモのコマを撮って動くWe
 使い方: uv run tools/make-demo.py [light|dark|narrow-light|narrow-dark ...]
 (初めてのときは uv run --with playwright playwright install chromium)
 """
+import fcntl
 import io
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from PIL import Image
@@ -27,6 +29,40 @@ VARIANTS = {  # 名前: (テーマ, 画面の幅, 解像度)
     "narrow-light": ("light", 412, 2), "narrow-dark": ("dark", 412, 2),
 }
 STATE = "() => { const r = document.querySelector('.demo'), o = []; for (const s of ['.ov', '.nf', '.opened', '.cursor', '.keycap', '.demo-tabs', '.demo-caption']) { const e = r.querySelector(s); o.push(e.hidden, e.className, e.style.cssText, e.innerHTML); } return [r.dataset.scene, o.join('|')]; }"
+
+LOCK = Path.home() / ".cache" / "make-demo.lock"  # wakudoriとhikidashiで共通
+
+
+class Frames:
+    """PNGのまま持ち, 保存のときに1コマずつ展開する(全部展開するとメモリを2GB以上使うため)."""
+
+    def __init__(self, pngs):
+        self.pngs, self.n_frames = pngs, len(pngs)
+
+    def seek(self, i):
+        self.image = open_png(self.pngs[i])
+
+    def __getattr__(self, name):
+        if name == "image":
+            raise AttributeError(name)
+        return getattr(self.image, name)
+
+
+def open_png(png):
+    return Image.open(io.BytesIO(png)).convert("RGB")
+
+
+@contextmanager
+def lock():
+    """同時に1つだけ生成する(重なるとRaspberry Piのメモリが足りなくなるため). プロセスが終われば自動で外れる."""
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCK, "w") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("ほかの生成が終わるのを待っています", file=sys.stderr, flush=True)
+            fcntl.flock(f, fcntl.LOCK_EX)
+        yield
 
 
 def record(browser, name):
@@ -49,7 +85,7 @@ def record(browser, name):
         elif seen_last:
             break  # 最初の場面に戻った
         if state != last:
-            frames.append(Image.open(io.BytesIO(pg.screenshot(clip=clip))).convert("RGB"))
+            frames.append(pg.screenshot(clip=clip))
             durations.append(STEP)
             last = state
         else:
@@ -57,14 +93,15 @@ def record(browser, name):
         pg.clock.run_for(STEP)
     pg.close()
     path = OUT / f"demo-{name}.webp"
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0, quality=78, method=4, minimize_size=False, kmin=9, kmax=40)
-    print(f"{path.name}: {frames[0].size}, {len(frames)}コマ, {sum(durations) / 1000:.1f}秒, {path.stat().st_size / 1e6:.1f}MB", flush=True)
+    first = open_png(frames[0])
+    first.save(path, save_all=True, append_images=[Frames(frames[1:])], duration=durations, loop=0, quality=78, method=4, minimize_size=False, kmin=9, kmax=40)
+    print(f"{path.name}: {first.size}, {len(frames)}コマ, {sum(durations) / 1000:.1f}秒, {path.stat().st_size / 1e6:.1f}MB", flush=True)
 
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    with sync_playwright() as p:
-        b = p.chromium.launch()
-        for n in sys.argv[1:] or list(VARIANTS):
+    for n in sys.argv[1:] or list(VARIANTS):
+        with lock(), sync_playwright() as p:
+            b = p.chromium.launch()
             record(b, n)
-        b.close()
+            b.close()
