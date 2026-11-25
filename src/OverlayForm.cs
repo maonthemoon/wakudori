@@ -28,7 +28,7 @@ namespace Wakudori
         private const int KnobHoverAlpha = 115; // カーソルを乗せただけのときのつまみの濃さ(選んだときは255)
 
         // 色はanthropic-htmlのライトテーマに合わせる(B12). 黒は暖色の黒(#141413), 線はアイボリー(#FAF9F5).
-        private static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13); // 範囲の外
+        internal static readonly Color DimColor = Color.FromArgb(DimAlpha, 0x14, 0x14, 0x13); // 範囲の外
         // 線は範囲のすぐ外側(必ず暗くした側)に引くので, 明るい色の実線ならどんな画面の上でも見える.
         private static readonly Color LineColor = Color.FromArgb(242, 0xFA, 0xF9, 0xF5);
         private static readonly Color KnobColor = Color.FromArgb(255, 0xFA, 0xF9, 0xF5);
@@ -51,11 +51,21 @@ namespace Wakudori
         private IntPtr hBitmap = IntPtr.Zero;
         private IntPtr oldBitmap = IntPtr.Zero;
         private Bitmap surface;             // hBitmapのピクセルを直接指すBitmap(PArgb)
+        private IntPtr surfaceBits = IntPtr.Zero;
+        private readonly FrozenScreen frozen; // 開いた瞬間に撮った, 止めた絵
+        private bool live;                  // trueなら止めた絵を出さず, 動いている画面を透かして見せる
+        // 試作: 描画にかかった時間
+        public int PresentCount;
+        public double PresentTotalMs;
+        public double PresentMaxMs;
+        public string FirstKey;             // 最初に届いたキーと時刻の報告用
+        public event EventHandler FirstKeyArrived;
 
         public bool AllowClose;             // trueのときだけ閉じられる(Alt+F4で1枚だけ閉じないように)
 
         public event EventHandler CaptureRequested;
         public event EventHandler CancelRequested;
+        public event EventHandler LiveToggleRequested;        // Space(止めた画面と動いている画面の切り替え)
         public event EventHandler SaveRequested;              // Ctrl+S(A3)
         public event RegionChosenHandler RegionChosen;        // 一覧の名前を押した, または数字キー(A4)
         public event RegionChosenHandler RegionHovered;       // 一覧の名前にカーソルが乗った(下見). 離れたらnull
@@ -89,7 +99,7 @@ namespace Wakudori
         private bool dropInRow;             // 入れる場所が1行のほう(falseなら縦の一覧)
         private string editError;           // 名前を変えられない理由. 名前の下に吹き出しで出す
 
-        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList)
+        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList, FrozenScreen frozen)
         {
             this.monitorIndex = monitorIndex;
             this.bounds = bounds;
@@ -108,6 +118,7 @@ namespace Wakudori
 
             this.regions = regions;
             this.showList = showList;
+            this.frozen = frozen;
             selection.Changed += OnSelectionChanged;
         }
 
@@ -150,6 +161,13 @@ namespace Wakudori
                 return;
             }
             base.WndProc(ref m);
+        }
+
+        public void SetLive(bool value)
+        {
+            if (live == value) return;
+            live = value;
+            Present();
         }
 
         // 一覧の中身が変わった(保存, 名前の変更, 削除)ときに呼ぶ.
@@ -201,6 +219,7 @@ namespace Wakudori
                 {
                     throw new InvalidOperationException("CreateDIBSection failed: " + System.Runtime.InteropServices.Marshal.GetLastWin32Error());
                 }
+                surfaceBits = bits;
                 oldBitmap = NativeMethods.SelectObject(memDC, hBitmap);
                 surface = new Bitmap(bounds.Width, bounds.Height, bounds.Width * 4, PixelFormat.Format32bppPArgb, bits);
                 surface.SetResolution(96f, 96f); // フォントの換算をDPIに左右されないようにする(拡大はscaleで行う)
@@ -221,6 +240,13 @@ namespace Wakudori
             Rectangle frame = selection.Frame;
             bool visible = frame.IntersectsWith(bounds);
             frameWasVisible = visible;
+            bool useFrozen = frozen != null && !live;
+
+            if (useFrozen)
+            {
+                NativeMethods.GdiFlush();
+                frozen.CopyTo(surfaceBits, bounds.Width * 4, visible ? ToLocal(frame) : Rectangle.Empty);
+            }
 
             using (Graphics g = Graphics.FromImage(surface))
             {
@@ -228,14 +254,17 @@ namespace Wakudori
                 g.SmoothingMode = SmoothingMode.None;
                 g.PixelOffsetMode = PixelOffsetMode.None;
 
-                g.Clear(DimColor);
+                if (!useFrozen) g.Clear(DimColor);
 
                 if (visible)
                 {
                     Rectangle local = ToLocal(frame);
-                    using (SolidBrush inside = new SolidBrush(Color.FromArgb(InsideAlpha, 0, 0, 0)))
+                    if (!useFrozen)
                     {
-                        g.FillRectangle(inside, local);
+                        using (SolidBrush inside = new SolidBrush(Color.FromArgb(InsideAlpha, 0, 0, 0)))
+                        {
+                            g.FillRectangle(inside, local);
+                        }
                     }
 
                     DrawBorder(g, local);
@@ -889,6 +918,7 @@ namespace Wakudori
         private void Present()
         {
             if (surface == null || !IsHandleCreated) return;
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
             Render();
             NativeMethods.GdiFlush();
 
@@ -909,6 +939,10 @@ namespace Wakudori
             {
                 NativeMethods.ReleaseDC(IntPtr.Zero, screenDC);
             }
+            double ms = watch.Elapsed.TotalMilliseconds;
+            PresentCount++;
+            PresentTotalMs += ms;
+            if (ms > PresentMaxMs) PresentMaxMs = ms;
         }
 
         private Rectangle ToLocal(Rectangle r)
@@ -1137,6 +1171,12 @@ namespace Wakudori
             bool ctrl = (keyData & Keys.Control) == Keys.Control;
             int step = ctrl ? 10 : 1;
 
+            if (FirstKey == null)
+            {
+                FirstKey = key.ToString();
+                if (FirstKeyArrived != null) FirstKeyArrived(this, EventArgs.Empty);
+            }
+
             // 数字キー1〜9: 一覧の先頭9個を呼び出す(A4)
             if ((keyData >= Keys.D1 && keyData <= Keys.D9) || (keyData >= Keys.NumPad1 && keyData <= Keys.NumPad9))
             {
@@ -1157,6 +1197,12 @@ namespace Wakudori
             if (keyData == Keys.Escape && menuOpen)
             {
                 CloseMenu(); // まず「+N」の一覧を閉じる
+                return true;
+            }
+
+            if (keyData == Keys.Space)
+            {
+                if (dragMode == DragMode.None && LiveToggleRequested != null) LiveToggleRequested(this, EventArgs.Empty);
                 return true;
             }
 

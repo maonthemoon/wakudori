@@ -11,6 +11,7 @@ namespace Wakudori
         public const int WS_EX_LAYERED = 0x00080000;
 
         public const int WM_DPICHANGED = 0x02E0;
+        public const int WM_CANCELMODE = 0x001F;
         public const int WM_HOTKEY = 0x0312;
         public const int WM_KEYDOWN = 0x0100;
         public const int WM_SYSKEYDOWN = 0x0104;
@@ -37,6 +38,26 @@ namespace Wakudori
             public int X;
             public int Y;
             public POINT(int x, int y) { X = x; Y = y; }
+        }
+
+        public const int GUI_INMENUMODE = 0x00000004;
+        public const int GUI_POPUPMENUMODE = 0x00000010;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct GUITHREADINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hwndActive;
+            public IntPtr hwndFocus;
+            public IntPtr hwndCapture;
+            public IntPtr hwndMenuOwner;
+            public IntPtr hwndMoveSize;
+            public IntPtr hwndCaret;
+            public int caretLeft;
+            public int caretTop;
+            public int caretRight;
+            public int caretBottom;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -123,6 +144,18 @@ namespace Wakudori
 
         [DllImport("user32.dll")]
         public static extern short GetKeyState(int vk);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        public static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
+
+        [DllImport("user32.dll")]
+        public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
+        public static extern void CopyMemory(IntPtr dest, IntPtr src, UIntPtr bytes);
 
         [DllImport("user32.dll")]
         public static extern bool DestroyIcon(IntPtr hIcon);

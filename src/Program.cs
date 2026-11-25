@@ -89,18 +89,23 @@ namespace Wakudori
         private bool previewing;
         private Rectangle frameBeforePreview;
         private string nameBeforePreview;
+        private readonly FrozenScreens frozen; // 開いた瞬間に撮った全モニターの絵. 撮れなければnull
+        private bool live;                     // Space: 止めた絵ではなく, 動いている画面を見て撮る
+        private readonly FreezeReport report;  // 試作の計測
+        private Timer reportTimer;
         private InlineNameEditor editor; // 名前を変えている最中の入力欄
 
         public event EventHandler Finished;
 
-        public CaptureSession(string saveDir, Size defaultFrameSize)
+        public CaptureSession(string saveDir, Size defaultFrameSize, Rectangle[] monitors, FrozenScreens frozen, FreezeReport report)
         {
             this.saveDir = saveDir;
             this.defaultFrameSize = defaultFrameSize;
 
-            Screen[] screens = Screen.AllScreens;
-            monitors = new Rectangle[screens.Length];
-            for (int i = 0; i < screens.Length; i++) monitors[i] = screens[i].Bounds;
+            this.monitors = monitors;
+            this.frozen = frozen;
+            this.report = report;
+            live = frozen == null;
 
             // 前回の範囲(A2)を読む. 開くたびに読み直す(A5). 読めないときは, 前回の範囲なしで開く(7.1).
             string error;
@@ -116,13 +121,15 @@ namespace Wakudori
             Rectangle initial = Selection.InitialFrame(monitors, store.Last, cursor, defaultFrameSize);
             selection = new Selection(monitors, initial);
 
-            for (int i = 0; i < screens.Length; i++)
+            for (int i = 0; i < monitors.Length; i++)
             {
                 // 保存した範囲の一覧は, 開いたときにマウスカーソルがあるモニターにだけ出す(A7).
                 bool listHere = monitors[i].Contains(cursor);
-                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere);
+                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere, frozen != null ? frozen.Get(i) : null);
                 f.CaptureRequested += OnCaptureRequested;
                 f.CancelRequested += OnCancelRequested;
+                f.LiveToggleRequested += OnLiveToggleRequested;
+                f.FirstKeyArrived += delegate(object sender, EventArgs e) { this.report.FirstKey = ((OverlayForm)sender).FirstKey + " at " + this.report.ElapsedMs + " ms"; };
                 f.SaveRequested += OnSaveRequested;
                 f.RegionChosen += OnRegionChosen;
                 f.RegionHovered += OnRegionHovered;
@@ -140,6 +147,54 @@ namespace Wakudori
                 if (forms[i].MonitorBounds.Contains(cursor)) { activeIndex = i; break; }
             }
             Activate();
+            report.Mark("shown");
+            StartForegroundCheck();
+        }
+
+        // 試作: 前面に出られたか(キー入力が届くか)を調べる. 出られていなければ, 少し待って出し直す.
+        private void StartForegroundCheck()
+        {
+            int tries = 0;
+            report.Foreground = IsForeground() ? "yes" : "no";
+            reportTimer = new Timer();
+            reportTimer.Interval = 50;
+            reportTimer.Tick += delegate
+            {
+                tries++;
+                if (closed || capturing || editor != null) { reportTimer.Stop(); return; }
+                if (IsForeground())
+                {
+                    report.Foreground += ", yes at " + report.ElapsedMs + " ms (retry " + (tries - 1) + ")";
+                    reportTimer.Stop();
+                    return;
+                }
+                if (tries > 6)
+                {
+                    report.Foreground += ", gave up";
+                    reportTimer.Stop();
+                    return;
+                }
+                Activate();
+            };
+            reportTimer.Start();
+        }
+
+        private bool IsForeground()
+        {
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            foreach (OverlayForm f in forms)
+            {
+                if (f.IsHandleCreated && f.Handle == fg) return true;
+            }
+            return false;
+        }
+
+        private void OnLiveToggleRequested(object sender, EventArgs e)
+        {
+            if (capturing || closed || frozen == null) return;
+            live = !live;
+            report.Toggles++;
+            foreach (OverlayForm f in forms) f.SetLive(live);
         }
 
         private int activeIndex;
@@ -386,6 +441,14 @@ namespace Wakudori
             Rectangle frame = selection.Frame;
             string name = selection.RegionName; // 名前付きの範囲を動かさずに撮るときだけ名前がある(D5)
 
+            if (!live)
+            {
+                // 止めた絵から切り出す. 見えている絵そのものなので, 選択画面が消えるのを待たなくてよい.
+                // キー処理の途中でフォームを破棄しないよう, 処理が終わってから行う.
+                ((Control)sender).BeginInvoke((MethodInvoker)delegate { CaptureAndClose(frame, name); });
+                return;
+            }
+
             // 選択画面を消してから撮る(B7: Enterを押した時点の画面). 消えた部分が描き直されるのを少し待つ.
             foreach (OverlayForm f in forms) f.Hide();
             Timer timer = new Timer();
@@ -394,23 +457,31 @@ namespace Wakudori
             {
                 timer.Stop();
                 timer.Dispose();
-                try
-                {
-                    Capture(frame, name);
-                }
-                catch (Exception ex)
-                {
-                    Notice.Show("撮影または保存に失敗しました", ex.Message, NoticeKind.Error);
-                }
-                CloseAll();
+                CaptureAndClose(frame, name);
             };
             timer.Start();
         }
 
+        private void CaptureAndClose(Rectangle frame, string name)
+        {
+            if (closed) return;
+            foreach (OverlayForm f in forms) f.Hide();
+            try
+            {
+                Capture(frame, name);
+            }
+            catch (Exception ex)
+            {
+                Notice.Show("撮影または保存に失敗しました", ex.Message, NoticeKind.Error);
+            }
+            CloseAll();
+        }
+
         private void Capture(Rectangle frame, string regionName)
         {
-            DateTime now = DateTime.Now;
-            using (Bitmap bmp = CaptureOutput.CaptureScreen(frame))
+            DateTime now = live ? DateTime.Now : frozen.Time;
+            report.Captured = live ? "live" : "frozen";
+            using (Bitmap bmp = live ? CaptureOutput.CaptureScreen(frame) : CropFrozen(frame))
             {
                 // D1: クリップボードとファイルの両方に出す. D4: 通知は出さない.
                 // ファイル名は<範囲名>_..., 名前がなければscreenshot_...(D2, D5).
@@ -418,6 +489,13 @@ namespace Wakudori
                 CaptureOutput.SavePng(bmp, saveDir, regionName, now);
             }
             SaveLast(frame);
+        }
+
+        private Bitmap CropFrozen(Rectangle frame)
+        {
+            Bitmap bmp = frozen.Crop(frame);
+            if (bmp == null) throw new InvalidOperationException("範囲がモニターに収まっていません.");
+            return bmp;
         }
 
         // 撮った範囲を「前回の範囲」として残す(A2). Escで閉じたときは残さない(A8).
@@ -439,6 +517,8 @@ namespace Wakudori
         {
             if (closed) return; // Escの連打などで2回呼ばれても安全にする
             closed = true;
+            if (reportTimer != null) reportTimer.Dispose();
+            report.Write(forms);
             foreach (OverlayForm f in forms)
             {
                 f.AllowClose = true;
@@ -446,6 +526,7 @@ namespace Wakudori
                 f.Dispose();
             }
             forms.Clear();
+            if (frozen != null) frozen.Dispose();
             if (editor != null)
             {
                 editor.Close();

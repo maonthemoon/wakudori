@@ -200,6 +200,27 @@ namespace Wakudori
                 return;
             }
 
+            // まず画面を撮る. 選択画面や知らせを出すと, 開いていたメニューが閉じるため.
+            FreezeReport report = new FreezeReport();
+            Rectangle[] monitors = MonitorBounds();
+            FrozenScreens frozen = null;
+            try
+            {
+                frozen = FrozenScreens.Capture(monitors);
+                report.Mark("captured");
+                report.Menu = MenuCloser.CloseActiveMenu();
+                report.Mark("menu handled");
+                frozen.Prepare(OverlayForm.DimColor);
+                report.Mark("dimmed");
+            }
+            catch (Exception ex)
+            {
+                // 撮れなければ, これまでどおり動いている画面の上で選ぶ.
+                if (frozen != null) frozen.Dispose();
+                frozen = null;
+                report.Error = ex.ToString();
+            }
+
             // 保存先は開くたびに読み直す(手で書き換えても再起動しなくてよい). ホットキーは読み直さない.
             string error;
             AppSettings latest = AppSettings.Load(out error);
@@ -212,14 +233,23 @@ namespace Wakudori
 
             try
             {
-                session = new CaptureSession(settings.SaveDir, DefaultFrameSize);
+                session = new CaptureSession(settings.SaveDir, DefaultFrameSize, monitors, frozen, report);
                 session.Finished += delegate { session = null; };
             }
             catch (Exception ex)
             {
                 session = null;
+                if (frozen != null) frozen.Dispose();
                 Notice.Show("選択画面を開けませんでした", ex.ToString(), NoticeKind.Error);
             }
+        }
+
+        private static Rectangle[] MonitorBounds()
+        {
+            Screen[] screens = Screen.AllScreens;
+            Rectangle[] r = new Rectangle[screens.Length];
+            for (int i = 0; i < screens.Length; i++) r[i] = screens[i].Bounds;
+            return r;
         }
 
         // ---- メニュー ----
