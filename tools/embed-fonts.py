@@ -2,9 +2,9 @@
 # requires-python = ">=3.9"
 # dependencies = ["fonttools[woff]==4.60.1"]
 # ///
-"""マニュアルの本文(Noto Sans JP)とコード(Noto Sans Mono)の書体を, 使う文字だけ埋め込む.
+"""マニュアルと紹介のページの本文(Noto Sans JP)とコード(Noto Sans Mono)の書体を, 使う文字だけ埋め込む.
 
-配ったマニュアルを開いたときに, Web(Google Fonts)を見にいかないようにするため(H9).
+ページを開いたときに, Web(Google Fonts)を見にいかないようにするため(H9).
 見出しの明朝は, anthropic-htmlスキルのbuild_html.pyが埋め込む.
 元の書体(SIL Open Font License 1.1)は, 決まった版を落として~/.cache/wakudori-fonts/に置く.
 

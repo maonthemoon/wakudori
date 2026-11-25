@@ -21,5 +21,6 @@ for p in ["docs/manual.html", "docs/index.html"]:
     left = re.findall(r"(?i)anthropic|claude", s)
     print(p + ": 他社名の残り", len(left), "件")
 PY
-# 配るマニュアルは, 本文とコードの書体も埋め込み, Webを見にいかないようにする(H9)
+# 本文とコードの書体も埋め込み, どのページを開いてもWebを見にいかないようにする(H9)
 uv run tools/embed-fonts.py docs/manual.html
+uv run tools/embed-fonts.py docs/index.html
