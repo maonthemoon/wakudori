@@ -33,7 +33,7 @@ Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要�
 
 ### gitを使う場合
 
-cloneして, `bin\Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告も出ません.
+cloneして, `bin\Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告は出ない見込みです(実機では未確認).
 
 ```sh
 git clone https://github.com/maonthemoon/wakudori.git
@@ -90,7 +90,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 
 ## 動作環境
 
-- Windows 11(Windows 10 22H2でも動作を確認)
+- Windows(Windows 11とWindows 10 22H2で動作を確認)
 - .NET Framework 4.8(Windowsに標準で入っています)
 
 ## 開発者向け
