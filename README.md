@@ -29,13 +29,13 @@ Snipping Toolでは, 撮るたびに範囲をドラッグで選び直す必要�
 ## はじめかた
 
 1. [Releases](https://github.com/maonthemoon/wakudori/releases)から`Wakudori-x.y.z.zip`をダウンロードし, 好きな場所(例: `ドキュメント\Wakudori`)に展開します.
-2. `Wakudori.exe`を起動します. 署名していないので, 「WindowsによってPCが保護されました」と出たら「詳細情報」→「実行」を押します.
+2. 展開した中の`bin\Wakudori.exe`を起動します. 署名していないので, 「WindowsによってPCが保護されました」と出たら「詳細情報」→「実行」を押します.
 3. ホットキーの登録画面が出たら, 使うキー(例: `Ctrl+Shift+S`)を押して「登録」を押します. Wakudoriはタスクトレイに常駐します.
 4. ホットキーを押すと選択画面が開きます. 枠を合わせて`Enter`で撮ります.
 
 ### gitを使う場合
 
-cloneして, `bin\Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, SmartScreenの警告は出ない見込みです(実機では未確認).
+cloneして, `bin\Wakudori.exe`を起動するだけで使えます(最新のリリースと同じexeで, 場所もZIPと同じです). gitで取ってきたファイルなら, SmartScreenの警告は出ない見込みです(実機では未確認).
 
 ```sh
 git clone https://github.com/maonthemoon/wakudori.git
@@ -110,7 +110,7 @@ v0.1.0のころにcloneした人へ: exeはリポジトリの直下から`bin\Wa
 | `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
 
-アンインストールは, トレイのメニューで「PC起動時に起動」を外して「終了」してから, `Wakudori.exe`のフォルダーと`%APPDATA%\Wakudori`を消すだけです.
+アンインストールは, トレイのメニューで「PC起動時に起動」を外して「終了」してから, 展開した(またはcloneした)フォルダーと`%APPDATA%\Wakudori`を消すだけです.
 
 ## 動作環境
 
@@ -129,7 +129,7 @@ SDKのインストールは不要です. Windows標準の`csc.exe`(.NET Framewor
 
 C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
-配る用のZIPは`powershell -ExecutionPolicy Bypass -File tools\package.ps1`で`dist\`に作ります. バージョンは`src/AssemblyInfo.cs`で決めます.
+配る用のZIPは`powershell -ExecutionPolicy Bypass -File tools\package.ps1`で`dist\`に作ります(中身は`bin\Wakudori.exe`, `docs\manual.html`, `LICENSE`で, リポジトリと同じ場所に置きます). バージョンは`src/AssemblyInfo.cs`で決めます.
 
 `v`で始まるタグ(例: `v0.1.0`)をpushすると, GitHub Actionsがビルドとテストを行い, ZIPをReleasesに置きます. あわせて, `bin\Wakudori.exe`をそのexeに差し替えて`main`にcommitします(`.github/workflows/build.yml`). `bin\Wakudori.exe`は手で更新しません.
 

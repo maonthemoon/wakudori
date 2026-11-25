@@ -167,7 +167,7 @@ namespace Wakudori
         // ---- マニュアル ----
 
         // docs\manual.htmlを既定のブラウザーで開く. Webのマニュアルは見にいかない.
-        // ZIPではexeの隣のdocs, リポジトリではexe(bin\かout\)の1つ上のdocsにある.
+        // ZIPでもリポジトリでも, exe(bin\かout\)の1つ上のdocsにある. v0.3.3までのZIPではexeの隣のdocs.
         private static void OpenManual()
         {
             string dir = Path.GetDirectoryName(Application.ExecutablePath);
@@ -175,7 +175,7 @@ namespace Wakudori
             if (!File.Exists(target)) target = Path.GetFullPath(Path.Combine(dir, "..", "docs", "manual.html"));
             if (!File.Exists(target))
             {
-                Notice.Show("マニュアルが見つかりません", "exeと一緒に配られたdocsフォルダー(docs\\manual.html)が必要です. exeだけを別の場所へ移したときは, docsフォルダーもexeの隣に置いてください.", NoticeKind.Warning);
+                Notice.Show("マニュアルが見つかりません", "exeと一緒に配られたdocsフォルダー(docs\\manual.html)が必要です. exeを別の場所へ移すときは, binとdocsを入れたフォルダーごと移してください.", NoticeKind.Warning);
                 return;
             }
             try

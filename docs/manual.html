@@ -1135,13 +1135,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
         </ul>
 
         <h2 id="install">インストール</h2>
-        <p>インストーラーはありません. ZIPを展開して, 中の<code>Wakudori.exe</code>を起動するだけです. 管理者権限は要りません.</p>
+        <p>インストーラーはありません. ZIPを展開して, 中の<code>bin\Wakudori.exe</code>を起動するだけです. 管理者権限は要りません.</p>
         <ol>
           <li><a href="https://github.com/maonthemoon/wakudori/releases" target="_blank" rel="noopener">Releases</a>から<code>Wakudori-0.3.1.zip</code>をダウンロードします.</li>
           <li>好きな場所(例: <code>ドキュメント\Wakudori</code>)に展開します.</li>
-          <li><code>Wakudori.exe</code>をダブルクリックして起動します.</li>
+          <li>展開した中の<code>bin\Wakudori.exe</code>をダブルクリックして起動します.</li>
         </ol>
-        <p><strong>gitを使う場合</strong>: cloneして, <code>bin\Wakudori.exe</code>を起動するだけで使えます(最新のリリースと同じexeです). gitで取ってきたファイルなら, 下の「WindowsによってPCが保護されました」は出ない見込みです(実機では未確認).</p>
+        <p><strong>gitを使う場合</strong>: cloneして, <code>bin\Wakudori.exe</code>を起動するだけで使えます(最新のリリースと同じexeで, 場所もZIPと同じです). gitで取ってきたファイルなら, 下の「WindowsによってPCが保護されました」は出ない見込みです(実機では未確認).</p>
         <div class="codeblock">
           <button class="copy-btn" type="button">コピー</button>
           <pre><code>git clone https://github.com/maonthemoon/wakudori.git</code></pre>
@@ -1370,7 +1370,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
         <ol>
           <li>PCの起動時に起動するようにしていたら, タスクトレイのメニューの「PC起動時に起動」をオフにします.</li>
           <li>タスクトレイのメニューの「終了」で止めます.</li>
-          <li><code>Wakudori.exe</code>を入れたフォルダーを消します.</li>
+          <li>展開した(またはcloneした)フォルダーを消します.</li>
           <li>設定と保存した範囲も消すなら, <code>%APPDATA%\Wakudori</code>を消します.</li>
         </ol>
         <p>撮った画像(<code>ピクチャ\Screenshots</code>など)は残ります.</p>
