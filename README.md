@@ -73,7 +73,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 | 操作 | 動き |
 |---|---|
-| `Enter` | 撮る |
+| `Enter`, `A` | 撮る(`A`は左手で押せる撮影キー. `settings.json`の`captureKey`で変えられる) |
 | `1`〜`9`, 名前をクリック | 保存した範囲を呼び出す(名前に乗せると下見) |
 | `Ctrl+S` | 今の枠に名前を付けて保存する |
 | 枠の外をドラッグ | 新しい枠を引く(離しても撮らない) |
@@ -91,7 +91,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 | 場所 | 中身 |
 |---|---|
 | `ピクチャ\Screenshots\` | 撮った画像. `<範囲の名前>_yyyyMMdd_HHmmss.png`(名前のない範囲は`screenshot_...`) |
-| `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`)と画像の保存先(`saveDir`) |
+| `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`), 画像の保存先(`saveDir`), 撮影キー(`captureKey`) |
 | `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
 

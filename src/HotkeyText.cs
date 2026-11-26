@@ -203,5 +203,21 @@ namespace Wakudori
             }
             return null;
         }
+
+        // 撮影キー(settings.jsonのcaptureKey. H11)の既定. A
+        public const int DefaultCaptureVk = 0x41;
+
+        // 撮影キーを読む. 使えるのは英字1文字(大文字・小文字どちらでも)だけ. EとFは選択画面で使っているので除く.
+        public static bool TryParseCaptureKey(string s, out int vk)
+        {
+            vk = 0;
+            if (s == null) return false;
+            s = s.Trim();
+            if (s.Length != 1) return false;
+            char c = char.ToUpperInvariant(s[0]);
+            if (c < 'A' || c > 'Z' || c == 'E' || c == 'F') return false;
+            vk = c;
+            return true;
+        }
     }
 }

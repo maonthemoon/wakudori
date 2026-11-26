@@ -10,7 +10,7 @@ namespace Wakudori
 {
     // 撮った画像に書き込む画面(H5, H7, H8). モニター全体を覆い, 撮ったのと同じ位置に等倍で画像を出す.
     // ドラッグ=ペン, Shift+ドラッグ=黒の塗りつぶし, Ctrl+Z/Ctrl+Y, 数字キーかパレットで色, Tabでパレットを隠す.
-    // Enter=クリップボードと<元の名前>_edit.pngに出して閉じる, Esc=書き込みを捨てて閉じる(元の画像は残る).
+    // Enter(か撮影キー)=クリップボードと<元の名前>_edit.pngに出して閉じる, Esc=書き込みを捨てて閉じる(元の画像は残る).
     internal sealed class MarkForm : Form
     {
         private const int PenWidth96 = 4;
@@ -46,10 +46,12 @@ namespace Wakudori
         private Point fillStart;
         private int colorIndex;
         private bool barHidden;
+        private readonly Keys captureKey;    // Enterと同じく完了するキー(settings.jsonのcaptureKey. H11)
 
         // image: 撮った画像(この画面が破棄する). imageBounds: 撮った範囲. originalPath: 保存済みの元の画像
-        public MarkForm(Bitmap image, Rectangle imageBounds, Rectangle monitor, float scale, string originalPath)
+        public MarkForm(Bitmap image, Rectangle imageBounds, Rectangle monitor, float scale, string originalPath, Keys captureKey)
         {
+            this.captureKey = captureKey;
             this.monitor = monitor;
             this.scale = scale;
             this.originalPath = originalPath;
@@ -346,7 +348,7 @@ namespace Wakudori
             }
             if (current != null) return base.ProcessCmdKey(ref msg, keyData); // 書いている間は, ほかのキーを無視する
 
-            if (keyData == Keys.Enter)
+            if (keyData == Keys.Enter || keyData == captureKey)
             {
                 BeginInvoke((MethodInvoker)Finish);
                 return true;

@@ -12,6 +12,8 @@ namespace Wakudori
         public string Hotkey;   // 未設定ならnull
         public string SaveDir;  // 空・未指定なら既定の保存先
         public bool CanSave = true; // 読めなかったファイルは上書きしない
+        public int CaptureVk = HotkeyText.DefaultCaptureVk; // 撮影キー(H11). Enterと同じく撮る. 書き込みの画面では完了
+        public string CaptureKeyProblem; // captureKeyが使えないキーだったときの知らせ. なければnull
 
         public static string ConfigDir
         {
@@ -47,6 +49,14 @@ namespace Wakudori
                     s.Hotkey = ((string)v).Trim();
                 if (d.TryGetValue("saveDir", out v) && v is string && ((string)v).Trim().Length > 0)
                     s.SaveDir = Environment.ExpandEnvironmentVariables(((string)v).Trim());
+                // 空・null・未指定なら既定(A). 使えないキーなら既定にして知らせる
+                if (d.TryGetValue("captureKey", out v) && v != null && !(v is string && ((string)v).Trim().Length == 0))
+                {
+                    int vk;
+                    if (v is string && HotkeyText.TryParseCaptureKey((string)v, out vk)) s.CaptureVk = vk;
+                    else s.CaptureKeyProblem = "設定ファイルの撮影キー(captureKey)「" + Convert.ToString(v) + "」は使えません. Aを使います.\n"
+                        + "使えるのは英字1文字です(EとFは除く): " + path;
+                }
             }
             catch (Exception ex)
             {

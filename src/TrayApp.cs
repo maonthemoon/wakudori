@@ -226,19 +226,23 @@ namespace Wakudori
                 frozen = null;
             }
 
-            // 保存先は開くたびに読み直す(手で書き換えても再起動しなくてよい). ホットキーは読み直さない.
+            // 保存先と撮影キーは開くたびに読み直す(手で書き換えても再起動しなくてよい). ホットキーは読み直さない.
             string error;
             AppSettings latest = AppSettings.Load(out error);
             if (error != null)
             {
                 Notice.Show("設定ファイルを読めません", error, NoticeKind.Warning);
             }
+            else if (latest.CaptureKeyProblem != null)
+            {
+                Notice.Show("撮影キーを読めません", latest.CaptureKeyProblem, NoticeKind.Warning);
+            }
             settings.SaveDir = latest.SaveDir;
             settings.CanSave = latest.CanSave;
 
             try
             {
-                session = new CaptureSession(settings.SaveDir, DefaultFrameSize, monitors, frozen);
+                session = new CaptureSession(settings.SaveDir, (Keys)latest.CaptureVk, DefaultFrameSize, monitors, frozen);
                 session.Finished += delegate { session = null; };
             }
             catch (Exception ex)

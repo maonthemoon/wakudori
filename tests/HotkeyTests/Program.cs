@@ -148,6 +148,22 @@ internal static class HotkeyTests
         Check("validate: modifier vk RCtrl", HotkeyText.Validate(S(C, 0xA3)) == "このキーは使えません.");
         Check("validate: CapsLock", HotkeyText.Validate(S(C, 0x14)) != null);
 
+        // 撮影キー(H11)
+        int ck;
+        Check("capturekey: A", HotkeyText.TryParseCaptureKey("A", out ck) && ck == 0x41);
+        Check("capturekey: lower/trim", HotkeyText.TryParseCaptureKey(" q ", out ck) && ck == 0x51);
+        Check("capturekey: Z", HotkeyText.TryParseCaptureKey("Z", out ck) && ck == 0x5A);
+        Check("capturekey: default", HotkeyText.DefaultCaptureVk == 0x41);
+        bool ckFails = true;
+        string[] bad = { null, "", " ", "E", "e", "F", "f", "1", "AB", "Enter", "Space", "Tab", "Ctrl+A", "あ", "Ａ", "@" };
+        foreach (string b in bad)
+        {
+            ck = 123;
+            bool r = HotkeyText.TryParseCaptureKey(b, out ck);
+            ckFails = ckFails && !r && ck == 0;
+        }
+        Check("capturekey: rejects", ckFails);
+
         Console.WriteLine(failed == 0 ? "ALL PASS" : failed + " FAILED");
         return failed == 0 ? 0 : 1;
     }

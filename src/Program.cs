@@ -92,6 +92,7 @@ namespace Wakudori
     internal sealed class CaptureSession
     {
         private readonly string saveDir;
+        private readonly Keys captureKey; // Enterと同じく撮るキー(H11). 書き込みの画面では完了
         private readonly RegionStore store;
         private readonly List<OverlayForm> forms = new List<OverlayForm>();
         private readonly Selection selection;
@@ -111,9 +112,10 @@ namespace Wakudori
 
         public event EventHandler Finished;
 
-        public CaptureSession(string saveDir, Size defaultFrameSize, Rectangle[] monitors, FrozenScreens frozen)
+        public CaptureSession(string saveDir, Keys captureKey, Size defaultFrameSize, Rectangle[] monitors, FrozenScreens frozen)
         {
             this.saveDir = saveDir;
+            this.captureKey = captureKey;
             this.defaultFrameSize = defaultFrameSize;
 
             this.monitors = monitors;
@@ -151,7 +153,7 @@ namespace Wakudori
             {
                 // 保存した範囲の一覧は, 開いたときにマウスカーソルがあるモニターにだけ出す(A7).
                 bool listHere = monitors[i].Contains(cursor);
-                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere, frozen != null ? frozen.Get(i) : null);
+                OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere, frozen != null ? frozen.Get(i) : null, captureKey);
                 f.CaptureRequested += OnCaptureRequested;
                 f.CancelRequested += OnCancelRequested;
                 f.LiveToggleRequested += OnLiveToggleRequested;
@@ -460,7 +462,7 @@ namespace Wakudori
             ((Form)sender).Activate();
         }
 
-        // Enter, E: 今の枠を撮る. 名前付きの範囲を動かさずに撮るときだけ名前がある(D5)
+        // Enter, 撮影キー, E: 今の枠を撮る. 名前付きの範囲を動かさずに撮るときだけ名前がある(D5)
         private void OnCaptureRequested(object sender, EventArgs e)
         {
             BeginCapture((Control)sender, selection.Frame, selection.RegionName, false, true);
@@ -545,7 +547,7 @@ namespace Wakudori
                 if (edit && result.Path != null)
                 {
                     Rectangle monitor = MonitorOf(frame);
-                    MarkForm form = new MarkForm(bmp, frame, monitor, Program.GetMonitorDpi(monitor) / 96f, result.Path);
+                    MarkForm form = new MarkForm(bmp, frame, monitor, Program.GetMonitorDpi(monitor) / 96f, result.Path, captureKey);
                     bmp = null; // 書き込みの画面が破棄する
                     form.Show();
                 }

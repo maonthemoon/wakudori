@@ -97,9 +97,11 @@ namespace Wakudori
         private int dropBefore = -1;        // この番号の範囲の前に入れる(末尾ならCount). -1は入れない
         private bool dropInRow;             // 入れる場所が1行のほう(falseなら縦の一覧)
         private string editError;           // 名前を変えられない理由. 名前の下に吹き出しで出す
+        private readonly Keys captureKey;   // Enterと同じく撮るキー(settings.jsonのcaptureKey. H11)
 
-        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList, FrozenScreen frozen)
+        public OverlayForm(int monitorIndex, Rectangle bounds, uint dpi, Selection selection, IList<SavedRegion> regions, bool showList, FrozenScreen frozen, Keys captureKey)
         {
+            this.captureKey = captureKey;
             this.monitorIndex = monitorIndex;
             this.bounds = bounds;
             this.dpi = dpi;
@@ -1226,8 +1228,8 @@ namespace Wakudori
                 return true;
             }
 
-            // EnterとEは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
-            if (key != Keys.Enter && keyData != Keys.E && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
+            // Enter, 撮影キー, Eは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
+            if (key != Keys.Enter && keyData != captureKey && keyData != Keys.E && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
 
             if (keyData == Keys.Escape && menuOpen)
             {
@@ -1235,6 +1237,12 @@ namespace Wakudori
                 return true;
             }
 
+            if (keyData == captureKey)
+            {
+                // 右手をマウスに置いたまま, 左手で撮れるように(H11). Enterと同じ
+                if (CaptureRequested != null) CaptureRequested(this, EventArgs.Empty);
+                return true;
+            }
             if (keyData == Keys.E)
             {
                 if (dragMode == DragMode.None && EditRequested != null) EditRequested(this, EventArgs.Empty);
