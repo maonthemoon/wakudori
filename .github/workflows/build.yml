@@ -50,6 +50,20 @@ jobs:
           name: ${{ format('Wakudori-{0}', steps.package.outputs.version) }}
           path: ${{ steps.package.outputs.zip }}
 
+  # 作ったexeを動かし, キーで撮れるかを確かめる(tests/e2e.ps1. H11).
+  # 安定するまでは, 失敗してもリリースを止めない(releaseのneedsに入れない).
+  e2e:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build with csc.exe
+        shell: cmd
+        run: build.cmd nopause
+      - name: Run e2e
+        shell: pwsh
+        run: ./tests/e2e.ps1
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [test, build]
