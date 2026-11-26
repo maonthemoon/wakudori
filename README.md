@@ -127,6 +127,8 @@ dotnet run --project tests/RegionTests
 dotnet run --project tests/MarkTests
 ```
 
+`tests/e2e.ps1`は, ビルドしたexeを実際に動かし, キーで撮れるかを確かめます. `%APPDATA%\Wakudori\settings.json`を書き換えるので, GitHub ActionsのWindows(`e2e`のjob)だけで動かします.
+
 ### 画像の作り直し
 
 - アイコン: [`tools/make_icon.py`](tools/make_icon.py)で`app.ico`を作ります. トレイのアイコン([`src/Theme.cs`](src/Theme.cs)の`CreateAppIconHandle`)も同じ絵に直します.
