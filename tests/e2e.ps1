@@ -163,8 +163,10 @@ try {
     Write-Settings "E"
     $n = Get-Shots
     [E2E]::Press($VK.F12, $VK.Ctrl)
-    Check "3 お知らせが出る" (Wait-Until { Test-Notice })
-    [E2E]::Press($VK.Enter)
+    $notice = Wait-Until { Test-Notice }
+    Check "3 お知らせが出る" $notice
+    # お知らせが出なかったときにEnterを送ると, 選択画面で撮れてしまい, 次の確認が偶然通る
+    if ($notice) { [E2E]::Press($VK.Enter) }
     Check "3 お知らせを閉じると選択画面が開く" (Wait-Until { Test-Overlay })
     [E2E]::Press($VK.A)
     Check "3 Aで撮る" (Wait-Until { (Get-Shots) -eq $n + 1 })
