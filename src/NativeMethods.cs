@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Wakudori
 {
@@ -29,6 +30,13 @@ namespace Wakudori
 
         public const uint MONITOR_DEFAULTTONEAREST = 2;
         public const int MDT_EFFECTIVE_DPI = 0;
+
+        private const uint FO_DELETE = 0x0003;
+        private const ushort FOF_SILENT = 0x0004;
+        private const ushort FOF_NOCONFIRMATION = 0x0010;
+        private const ushort FOF_ALLOWUNDO = 0x0040;
+        private const ushort FOF_NOERRORUI = 0x0400;
+        private const ushort FOF_WANTNUKEWARNING = 0x4000;
 
         public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
 
@@ -91,6 +99,68 @@ namespace Wakudori
             public int biYPelsPerMeter;
             public uint biClrUsed;
             public uint biClrImportant;
+        }
+
+        // shellapi.hのSHFILEOPSTRUCTWは32ビット版だけ1バイト境界に詰める
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct SHFILEOPSTRUCT32
+        {
+            public IntPtr hwnd;
+            public uint wFunc;
+            public IntPtr pFrom;
+            public IntPtr pTo;
+            public ushort fFlags;
+            public int fAnyOperationsAborted;
+            public IntPtr hNameMappings;
+            public IntPtr lpszProgressTitle;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SHFILEOPSTRUCT64
+        {
+            public IntPtr hwnd;
+            public uint wFunc;
+            public IntPtr pFrom;
+            public IntPtr pTo;
+            public ushort fFlags;
+            public int fAnyOperationsAborted;
+            public IntPtr hNameMappings;
+            public IntPtr lpszProgressTitle;
+        }
+
+        [DllImport("shell32.dll", ExactSpelling = true)]
+        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT32 operation);
+
+        [DllImport("shell32.dll", ExactSpelling = true)]
+        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT64 operation);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        public static extern bool GetVolumePathNameW(string fileName, StringBuilder volumePath, int capacity);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        public static extern uint GetDriveTypeW(string rootPath);
+
+        public static bool TryRecycleFile(string fullPath)
+        {
+            // 固定ドライブでもごみ箱に入らない場合があるので, 完全に削除する前はWindowsに確認させる
+            const ushort flags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING;
+            // パス1件と終端用の空文字列. StringToHGlobalUniが最後にもう1文字のNULを足す
+            IntPtr source = Marshal.StringToHGlobalUni(fullPath + "\0");
+            try
+            {
+                if (IntPtr.Size == 4)
+                {
+                    SHFILEOPSTRUCT32 op = new SHFILEOPSTRUCT32 { wFunc = FO_DELETE, pFrom = source, fFlags = flags };
+                    return SHFileOperationW(ref op) == 0 && op.fAnyOperationsAborted == 0;
+                }
+
+                SHFILEOPSTRUCT64 op64 = new SHFILEOPSTRUCT64 { wFunc = FO_DELETE, pFrom = source, fFlags = flags };
+                return SHFileOperationW(ref op64) == 0 && op64.fAnyOperationsAborted == 0;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(source);
+            }
         }
 
         [DllImport("user32.dll", SetLastError = true)]

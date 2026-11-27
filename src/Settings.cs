@@ -14,6 +14,11 @@ namespace Wakudori
         public bool CanSave = true; // 読めなかったファイルは上書きしない
         public int CaptureVk = HotkeyText.DefaultCaptureVk; // 撮影キー(H11). Enterと同じく撮る. 書き込みの画面では完了
         public string CaptureKeyProblem; // captureKeyが使えないキーだったときの知らせ. なければnull
+        public const int DefaultAutoDeleteDays = 30;
+        public bool AutoDelete = false;
+        public int AutoDeleteDays = DefaultAutoDeleteDays;
+        public string AutoDeleteProblem;
+        public string AutoDeleteDaysProblem;
 
         public static string ConfigDir
         {
@@ -56,6 +61,17 @@ namespace Wakudori
                     if (v is string && HotkeyText.TryParseCaptureKey((string)v, out vk)) s.CaptureVk = vk;
                     else s.CaptureKeyProblem = "設定ファイルの撮影キー(captureKey)「" + Convert.ToString(v) + "」は使えません. Aを使います.\n"
                         + "使えるのは英字1文字です(EとFは除く): " + path;
+                }
+                if (d.TryGetValue("autoDelete", out v))
+                {
+                    if (v is bool) s.AutoDelete = (bool)v;
+                    else s.AutoDeleteProblem = "設定ファイルのautoDeleteにはtrueかfalseを指定してください. 自動整理はオフにします.\n" + path;
+                }
+                if (d.TryGetValue("autoDeleteDays", out v))
+                {
+                    if (v is int && (int)v >= 1 && (int)v <= 3650) s.AutoDeleteDays = (int)v;
+                    else s.AutoDeleteDaysProblem = "設定ファイルのautoDeleteDaysには1〜3650の整数を指定してください. "
+                        + DefaultAutoDeleteDays + "日を使います.\n" + path;
                 }
             }
             catch (Exception ex)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Wakudori;
 
 internal static class Program
@@ -80,7 +81,15 @@ internal static class Program
             CaptureLog.Rewrite(newLog, new[] { first });
             Eq("rewrite creates missing log", firstLine, File.ReadAllText(newLog, utf8));
 
+            CaptureRecord newer = new CaptureRecord(time.AddDays(1), 1024, first.LastWriteUtcTicks + 1, first.FullPath);
+            CaptureLog.Append(newLog, newer);
+            CaptureLog.Remove(newLog, new[] { first });
+            List<CaptureRecord> remaining = CaptureLog.Read(newLog);
+            Eq("remove preserves a later record for the same path", 1, remaining.Count);
+            if (remaining.Count == 1) CheckRecord("later record", newer, remaining[0]);
+
             bool rejected = false;
+            string beforeRejectedAppend = File.ReadAllText(newLog, utf8);
             try
             {
                 CaptureLog.Append(newLog, new CaptureRecord(time, 123, 456, partialPath));
@@ -90,7 +99,19 @@ internal static class Program
                 rejected = true;
             }
             Eq("reject non-PNG path on append", true, rejected);
-            Eq("rejected append leaves log intact", firstLine, File.ReadAllText(newLog, utf8));
+            Eq("rejected append leaves log intact", beforeRejectedAppend, File.ReadAllText(newLog, utf8));
+
+            string concurrentLog = Path.Combine(dir, "concurrent.log");
+            CaptureRecord[] oldRecords = Enumerable.Range(0, 32)
+                .Select(i => new CaptureRecord(time, 1024, first.LastWriteUtcTicks, Path.Combine(dir, "old-" + i + ".png"))).ToArray();
+            CaptureRecord[] newRecords = Enumerable.Range(0, 32)
+                .Select(i => new CaptureRecord(time, 1024, first.LastWriteUtcTicks, Path.Combine(dir, "new-" + i + ".png"))).ToArray();
+            CaptureLog.Rewrite(concurrentLog, oldRecords);
+            Parallel.Invoke(
+                () => { foreach (CaptureRecord record in oldRecords) CaptureLog.Remove(concurrentLog, new[] { record }); },
+                () => { foreach (CaptureRecord record in newRecords) CaptureLog.Append(concurrentLog, record); });
+            Eq("concurrent removal preserves every appended record", true,
+                CaptureLog.Read(concurrentLog).Select(record => record.FullPath).SequenceEqual(newRecords.Select(record => record.FullPath)));
         }
         finally
         {

@@ -91,9 +91,11 @@ git clone https://github.com/maonthemoon/wakudori.git
 | 場所 | 中身 |
 |---|---|
 | `ピクチャ\Screenshots\` | 撮った画像. `yyyyMMdd_HHmmss_<範囲の名前>.png`(名前のない範囲は`yyyyMMdd_HHmmss.png`) |
-| `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`), 画像の保存先(`saveDir`), 撮影キー(`captureKey`) |
+| `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`), 画像の保存先(`saveDir`), 撮影キー(`captureKey`), 古い画像の自動整理(`autoDelete`), 日数(`autoDeleteDays`) |
 | `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
+
+`autoDelete`は初めはオフです. `true`にすると, Wakudoriが撮って記録した画像だけを, 撮影から`autoDeleteDays`(既定30日)がたったらごみ箱へ移します. この版より前の画像や, 移した・名前を変えた・直した画像は消しません.
 
 ## 困ったとき
 
@@ -123,6 +125,7 @@ WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラ�
 dotnet run --project tests/SelectionTests
 dotnet run --project tests/OutputTests
 dotnet run --project tests/CaptureLogTests
+dotnet run --project tests/CleanupTests
 dotnet run --project tests/HotkeyTests
 dotnet run --project tests/RegionTests
 dotnet run --project tests/MarkTests

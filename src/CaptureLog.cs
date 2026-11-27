@@ -30,6 +30,8 @@ namespace Wakudori
         private static readonly Encoding Utf8 = new UTF8Encoding(false);
         private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
         private static readonly char[] FieldSeparators = { '\t', '\r', '\n' };
+        // 整理の読み直しと書き直しの間に撮影の追記が入ると, その行が失われる
+        private static readonly object LogLock = new object();
 
         public static string DefaultPath
         {
@@ -39,33 +41,39 @@ namespace Wakudori
         public static void Append(string logPath, CaptureRecord record)
         {
             string line = Format(record);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(logPath)));
-            using (FileStream stream = new FileStream(logPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read))
+            lock (LogLock)
             {
-                // 前の追記が途中で止まっていても, 今回の記録は別の行にする
-                if (stream.Length > 0)
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(logPath)));
+                using (FileStream stream = new FileStream(logPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read))
                 {
-                    stream.Seek(-1, SeekOrigin.End);
-                    if (stream.ReadByte() != '\n') stream.WriteByte((byte)'\n');
+                    // 前の追記が途中で止まっていても, 今回の記録は別の行にする
+                    if (stream.Length > 0)
+                    {
+                        stream.Seek(-1, SeekOrigin.End);
+                        if (stream.ReadByte() != '\n') stream.WriteByte((byte)'\n');
+                    }
+                    using (StreamWriter writer = new StreamWriter(stream, Utf8))
+                        writer.WriteLine(line);
                 }
-                using (StreamWriter writer = new StreamWriter(stream, Utf8))
-                    writer.WriteLine(line);
             }
         }
 
         public static List<CaptureRecord> Read(string logPath)
         {
             List<CaptureRecord> records = new List<CaptureRecord>();
-            try
+            lock (LogLock)
             {
-                foreach (string line in File.ReadLines(logPath, Utf8))
+                try
                 {
-                    CaptureRecord record;
-                    if (TryParse(line, out record)) records.Add(record);
+                    foreach (string line in File.ReadLines(logPath, Utf8))
+                    {
+                        CaptureRecord record;
+                        if (TryParse(line, out record)) records.Add(record);
+                    }
                 }
+                catch (FileNotFoundException) { }
+                catch (DirectoryNotFoundException) { }
             }
-            catch (FileNotFoundException) { }
-            catch (DirectoryNotFoundException) { }
             return records;
         }
 
@@ -79,6 +87,20 @@ namespace Wakudori
             }
             if (File.Exists(logPath)) File.Replace(tmp, logPath, null);
             else File.Move(tmp, logPath);
+        }
+
+        public static void Remove(string logPath, IEnumerable<CaptureRecord> removed)
+        {
+            HashSet<string> lines = new HashSet<string>();
+            foreach (CaptureRecord record in removed) lines.Add(Format(record));
+            if (lines.Count == 0) return;
+
+            lock (LogLock)
+            {
+                // ごみ箱へ移している間に追記された行も残す
+                List<CaptureRecord> records = Read(logPath);
+                if (records.RemoveAll(record => lines.Contains(Format(record))) > 0) Rewrite(logPath, records);
+            }
         }
 
         private static string Format(CaptureRecord record)

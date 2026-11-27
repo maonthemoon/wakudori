@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace Wakudori
 {
@@ -16,10 +19,13 @@ namespace Wakudori
         private readonly HotkeyWindow hotkeyWindow;
         private readonly NotifyIcon tray;
         private readonly IntPtr iconHandle;
+        private readonly Timer cleanupTimer;
+        private bool firstCleanup = true;
+        private bool cleanupRunning;
         private ToolStripMenuItem startupItem;
         private CaptureSession session;
         private bool dialogOpen;
-        private bool exiting;
+        private volatile bool exiting;
         private bool askingExit;
         private bool reportingError;
 
@@ -40,6 +46,10 @@ namespace Wakudori
                 if (e.Button == MouseButtons.Left) OpenSelection();
             };
             tray.Visible = true;
+
+            cleanupTimer = new Timer { Interval = (int)TimeSpan.FromMinutes(1).TotalMilliseconds };
+            cleanupTimer.Tick += OnCleanupTick;
+            cleanupTimer.Start();
 
             string startupError = Startup.FixPathIfMoved();
             if (startupError != null)
@@ -162,6 +172,98 @@ namespace Wakudori
         {
             if (error == null) return;
             Notice.Show("自動起動を設定できませんでした", error, NoticeKind.Warning);
+        }
+
+        // ---- 古い画像の自動整理 ----
+
+        private async void OnCleanupTick(object sender, EventArgs e)
+        {
+            if (cleanupRunning || exiting) return;
+            cleanupTimer.Stop();
+            cleanupRunning = true;
+            bool pruneMissing = firstCleanup;
+            firstCleanup = false;
+            try
+            {
+                // オフでも設定だけは定期的に読み, 手でオンにしたときに反映する
+                cleanupTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
+                cleanupTimer.Start();
+                AppSettings latest = LoadCleanupSettings();
+                if (exiting || (!latest.AutoDelete && !pruneMissing)) return;
+                int moved = 0;
+                bool skippedLocation = false;
+                await Task.Run(() => RunCleanup(latest, out moved, out skippedLocation));
+
+                // awaitの後はWinFormsのUIスレッドで知らせる
+                if (exiting) return;
+                if (moved > 0)
+                    tray.ShowBalloonTip(5000, "Wakudori", latest.AutoDeleteDays + "日を過ぎたWakudoriの画像を" + moved + "枚ごみ箱へ移しました", ToolTipIcon.Info);
+                if (skippedLocation)
+                    Notice.Show("画像の自動整理", "ネットワーク上などごみ箱のない場所にある画像は消しません", NoticeKind.Info);
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("CaptureLog.Cleanup", ex);
+            }
+            finally
+            {
+                cleanupRunning = false;
+            }
+        }
+
+        private static AppSettings LoadCleanupSettings()
+        {
+            string error;
+            AppSettings latest = AppSettings.Load(out error);
+            if (error != null)
+            {
+                Notice.Show("設定ファイルを読めません", error, NoticeKind.Warning);
+            }
+            else if (latest.AutoDeleteProblem != null || latest.AutoDeleteDaysProblem != null)
+            {
+                string problem = latest.AutoDeleteProblem ?? latest.AutoDeleteDaysProblem;
+                if (latest.AutoDeleteProblem != null && latest.AutoDeleteDaysProblem != null)
+                    problem += "\r\n\r\n" + latest.AutoDeleteDaysProblem;
+                Notice.Show("画像の自動整理の設定を読めません", problem, NoticeKind.Warning);
+            }
+            return latest;
+        }
+
+        private void RunCleanup(AppSettings latest, out int moved, out bool skippedLocation)
+        {
+            moved = 0;
+            skippedLocation = false;
+            if (exiting) return;
+            try
+            {
+                string logPath = CaptureLog.DefaultPath;
+                List<CaptureRecord> records = CaptureLog.Read(logPath);
+                List<CaptureRecord> removed;
+                if (!latest.AutoDelete)
+                {
+                    removed = Cleanup.SelectMissing(records, CaptureRecycler.ReadState);
+                }
+                else
+                {
+                    CleanupResult result = Cleanup.Select(records, DateTime.UtcNow, latest.AutoDeleteDays, CaptureRecycler.ReadState);
+                    removed = result.ToForget;
+                    foreach (CaptureRecord record in result.ToRecycle)
+                    {
+                        if (exiting) break;
+                        if (!CaptureRecycler.IsOnFixedDrive(record.FullPath)) skippedLocation = true;
+                        else if (CaptureRecycler.TryMove(record))
+                        {
+                            removed.Add(record);
+                            moved++;
+                        }
+                    }
+                }
+                CaptureLog.Remove(logPath, removed);
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("CaptureLog.Cleanup", ex);
+            }
         }
 
         // ---- マニュアル ----
@@ -370,6 +472,7 @@ namespace Wakudori
             if (exiting || askingExit) return;
             if (!ConfirmDiscardMarks()) return;
             exiting = true;
+            cleanupTimer.Dispose();
             if (session != null) session.Close();
             tray.Visible = false;
             tray.Dispose();
