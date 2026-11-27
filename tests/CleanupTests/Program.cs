@@ -23,6 +23,11 @@ internal static class Program
 
     private static int Main()
     {
+        Eq("unreadable settings skip cleanup before touching the capture log", 0,
+            Cleanup.RunIfSettingsReadable(false, () => throw new InvalidOperationException("cleanup ran")));
+        Eq("readable or missing settings allow cleanup", 2,
+            Cleanup.RunIfSettingsReadable(true, () => 2));
+
         const long size = 1024;
         const int days = 30;
         DateTime now = new DateTime(2026, 11, 20, 9, 5, 7, DateTimeKind.Utc);
@@ -34,45 +39,63 @@ internal static class Program
         CaptureRecord tooYoung = new CaptureRecord(cutoff.AddSeconds(1), size, write, "too-young.png");
         CaptureRecord missing = new CaptureRecord(cutoff.AddSeconds(1), size, write, "missing.png");
         CaptureRecord differentSize = new CaptureRecord(cutoff, size, write, "different-size.png");
+        CaptureRecord youngDifferentSize = new CaptureRecord(cutoff.AddSeconds(1), size, write, "young-different-size.png");
         CaptureRecord laterTwoSeconds = new CaptureRecord(cutoff, size, write, "later-two-seconds.png");
         CaptureRecord earlierTwoSeconds = new CaptureRecord(cutoff, size, write, "earlier-two-seconds.png");
         CaptureRecord laterThreeSeconds = new CaptureRecord(cutoff, size, write, "later-three-seconds.png");
         CaptureRecord earlierThreeSeconds = new CaptureRecord(cutoff, size, write, "earlier-three-seconds.png");
         CaptureRecord unreadable = new CaptureRecord(cutoff, size, write, "unreadable.png");
+        CaptureRecord youngUnreadable = new CaptureRecord(cutoff.AddSeconds(1), size, write, "young-unreadable.png");
+        CaptureRecord nonFixed = new CaptureRecord(cutoff, size, write, "non-fixed.png");
+        CaptureRecord youngNonFixed = new CaptureRecord(cutoff.AddSeconds(1), size, write, "young-non-fixed.png");
 
-        CaptureRecord[] records = { exact, tooYoung, missing, differentSize, laterTwoSeconds, earlierTwoSeconds,
-            laterThreeSeconds, earlierThreeSeconds, unreadable };
+        CaptureRecord[] records = { exact, tooYoung, missing, differentSize, youngDifferentSize, laterTwoSeconds,
+            earlierTwoSeconds, laterThreeSeconds, earlierThreeSeconds, unreadable, youngUnreadable, nonFixed, youngNonFixed };
         Dictionary<string, CaptureFileState?> states = new Dictionary<string, CaptureFileState?>
         {
             { exact.FullPath, new CaptureFileState(true, size, write) },
             { tooYoung.FullPath, new CaptureFileState(true, size, write) },
             { missing.FullPath, new CaptureFileState(false, size, write) },
             { differentSize.FullPath, new CaptureFileState(true, size + 1, write) },
+            { youngDifferentSize.FullPath, new CaptureFileState(true, size + 1, write) },
             { laterTwoSeconds.FullPath, new CaptureFileState(true, size, write + 2 * second) },
             { earlierTwoSeconds.FullPath, new CaptureFileState(true, size, write - 2 * second) },
             { laterThreeSeconds.FullPath, new CaptureFileState(true, size, write + 3 * second) },
             { earlierThreeSeconds.FullPath, new CaptureFileState(true, size, write - 3 * second) },
             { unreadable.FullPath, null },
+            { youngUnreadable.FullPath, null },
+            { nonFixed.FullPath, new CaptureFileState(true, size, write) },
+            { youngNonFixed.FullPath, new CaptureFileState(true, size, write) },
         };
 
         List<string> checkedPaths = new List<string>();
-        CleanupResult result = Cleanup.Select(records, now, days, path =>
+        CleanupResult result = Cleanup.Select(records, now, days, true, path =>
         {
             checkedPaths.Add(path);
             return states[path];
-        });
-        CheckRecords("recycle at 30 days and with timestamps shifted by up to 2 seconds", result.ToRecycle,
+        }, path => path != nonFixed.FullPath && path != youngNonFixed.FullPath);
+        CheckRecords("recycle eligible fixed-drive files at 30 days, allowing up to 2 seconds of timestamp difference", result.ToRecycle,
             exact, laterTwoSeconds, earlierTwoSeconds);
-        CheckRecords("keep one second before cutoff and keep expired records with unknown file state",
-            result.ToKeep, tooYoung, unreadable);
-        CheckRecords("forget missing files and mismatched size or timestamps shifted by 3 seconds", result.ToForget,
-            missing, differentSize, laterThreeSeconds, earlierThreeSeconds);
+        CheckRecords("keep matching files and unknown states one second before cutoff", result.ToKeep,
+            tooYoung, youngUnreadable, youngNonFixed);
+        CheckRecords("forget missing and changed files, and expired records with non-fixed drives or unknown states", result.ToForget,
+            missing, differentSize, youngDifferentSize, laterThreeSeconds, earlierThreeSeconds, unreadable, nonFixed);
         Eq("check only logged paths", true, checkedPaths.SequenceEqual(records.Select(record => record.FullPath)));
 
-        CheckRecords("with autoDelete off, forget only confirmed missing files",
-            Cleanup.SelectMissing(records.ToList(), path => states[path]), missing);
+        Func<string, bool> unexpectedDriveCheck = path => throw new InvalidOperationException(path);
+        result = Cleanup.Select(records, now, days, false, path => states[path], unexpectedDriveCheck);
+        CheckRecords("with autoDelete off, recycle no files", result.ToRecycle);
+        CheckRecords("with autoDelete off, keep unexpired matching files and unknown states", result.ToKeep,
+            tooYoung, youngUnreadable, youngNonFixed);
+        CheckRecords("with autoDelete off, forget all expired records and unexpired missing or changed files", result.ToForget,
+            exact, missing, differentSize, youngDifferentSize, laterTwoSeconds, earlierTwoSeconds,
+            laterThreeSeconds, earlierThreeSeconds, unreadable, nonFixed);
 
-        result = Cleanup.Select(new CaptureRecord[0], now, days, path => throw new InvalidOperationException(path));
+        result = Cleanup.Select(new[] { tooYoung }, now, days - 1, false, path => states[path], unexpectedDriveCheck);
+        CheckRecords("with autoDelete off, use the configured retention days", result.ToForget, tooYoung);
+
+        result = Cleanup.Select(new CaptureRecord[0], now, days, true,
+            path => throw new InvalidOperationException(path), unexpectedDriveCheck);
         CheckRecords("empty log has no recycle candidates", result.ToRecycle);
         CheckRecords("empty log has no records to keep", result.ToKeep);
         CheckRecords("empty log has no records to forget", result.ToForget);

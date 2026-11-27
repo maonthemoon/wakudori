@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -21,7 +20,6 @@ namespace Wakudori
         private readonly NotifyIcon tray;
         private readonly IntPtr iconHandle;
         private readonly Timer cleanupTimer;
-        private bool firstCleanup = true;
         private CancellationTokenSource cleanupRun;
         private int? requestedCleanupDays;
         private SettingsForm settingsForm;
@@ -190,6 +188,7 @@ namespace Wakudori
 
         private void OnCleanupTick(object sender, EventArgs e)
         {
+            cleanupTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
             StartCleanup();
         }
 
@@ -205,13 +204,13 @@ namespace Wakudori
 
         internal static int CountCleanupCandidates(int days)
         {
-            return SelectCleanup(CaptureLog.Read(CaptureLog.DefaultPath), days).ToRecycle
-                .Count(record => CaptureRecycler.IsOnFixedDrive(record.FullPath));
+            return SelectCleanup(CaptureLog.Read(CaptureLog.DefaultPath), days, true).ToRecycle.Count;
         }
 
-        private static CleanupResult SelectCleanup(List<CaptureRecord> records, int days)
+        private static CleanupResult SelectCleanup(List<CaptureRecord> records, int days, bool autoDelete)
         {
-            return Cleanup.Select(records, DateTime.UtcNow, days, CaptureRecycler.ReadState);
+            return Cleanup.Select(records, DateTime.UtcNow, days, autoDelete,
+                CaptureRecycler.ReadState, CaptureRecycler.IsOnFixedDrive);
         }
 
         private async void StartCleanup(int? confirmedDays = null)
@@ -222,30 +221,21 @@ namespace Wakudori
                 if (confirmedDays.HasValue) requestedCleanupDays = confirmedDays;
                 return;
             }
-            cleanupTimer.Stop();
             cleanupRun = new CancellationTokenSource();
             CancellationToken token = cleanupRun.Token;
-            bool pruneMissing = firstCleanup;
-            firstCleanup = false;
             try
             {
-                cleanupTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
-                cleanupTimer.Start();
                 // 設定画面からの実行には確認に使った日数を使う. 定期実行ではファイルを読み直す.
                 AppSettings latest = confirmedDays.HasValue
                     ? new AppSettings { AutoDelete = true, AutoDeleteDays = confirmedDays.Value }
                     : LoadCleanupSettings();
-                if (exiting || (!latest.AutoDelete && !pruneMissing)) return;
-                int moved = 0;
-                bool skippedLocation = false;
-                await Task.Run(() => RunCleanup(latest, token, out moved, out skippedLocation));
+                if (exiting) return;
+                int moved = await Task.Run(() => Cleanup.RunIfSettingsReadable(latest.CanSave, () => RunCleanup(latest, token)));
 
                 // awaitの後はWinFormsのUIスレッドで知らせる
                 if (exiting) return;
                 if (moved > 0)
                     tray.ShowBalloonTip(5000, "Wakudori", latest.AutoDeleteDays + "日を過ぎたWakudoriの画像を" + moved + "枚ごみ箱へ移しました", ToolTipIcon.Info);
-                if (skippedLocation && !token.IsCancellationRequested)
-                    Notice.Show("画像の自動整理", "ネットワーク上などごみ箱のない場所にある画像は消しません", NoticeKind.Info);
             }
             catch (Exception ex)
             {
@@ -282,41 +272,33 @@ namespace Wakudori
             return latest;
         }
 
-        private void RunCleanup(AppSettings latest, CancellationToken token, out int moved, out bool skippedLocation)
+        private int RunCleanup(AppSettings latest, CancellationToken token)
         {
-            moved = 0;
-            skippedLocation = false;
-            if (exiting) return;
+            int moved = 0;
+            if (exiting) return moved;
             try
             {
                 string logPath = CaptureLog.DefaultPath;
                 List<CaptureRecord> records = CaptureLog.Read(logPath);
-                List<CaptureRecord> removed;
-                if (!latest.AutoDelete)
+                CleanupResult result = SelectCleanup(records, latest.AutoDeleteDays, latest.AutoDelete);
+                foreach (CaptureRecord record in result.ToRecycle)
                 {
-                    removed = Cleanup.SelectMissing(records, CaptureRecycler.ReadState);
-                }
-                else
-                {
-                    CleanupResult result = SelectCleanup(records, latest.AutoDeleteDays);
-                    removed = result.ToForget;
-                    foreach (CaptureRecord record in result.ToRecycle)
+                    if (exiting || token.IsCancellationRequested) break;
+                    // 選別後にドライブの接続が変わることがあるので, 移す前にもう一度確かめる
+                    if (!CaptureRecycler.IsOnFixedDrive(record.FullPath)) result.ToForget.Add(record);
+                    else if (CaptureRecycler.TryMove(record))
                     {
-                        if (exiting || token.IsCancellationRequested) break;
-                        if (!CaptureRecycler.IsOnFixedDrive(record.FullPath)) skippedLocation = true;
-                        else if (CaptureRecycler.TryMove(record))
-                        {
-                            removed.Add(record);
-                            moved++;
-                        }
+                        result.ToForget.Add(record);
+                        moved++;
                     }
                 }
-                CaptureLog.Remove(logPath, removed);
+                CaptureLog.Remove(logPath, result.ToForget);
             }
             catch (Exception ex)
             {
                 Program.LogError("CaptureLog.Cleanup", ex);
             }
+            return moved;
         }
 
         // ---- マニュアル ----

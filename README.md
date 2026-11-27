@@ -103,6 +103,8 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 「古い画像をごみ箱へ移す」(`autoDelete`)は初めはオフです. オンにすると, Wakudoriが撮って記録した画像だけを, 撮影から指定の日数(`autoDeleteDays`, 既定30日)がたったらごみ箱へ移します. 設定画面でオンにするときに対象の画像があれば, 移す枚数を表示して確認します. この版より前の画像や, 移した・名前を変えた・直した画像は消しません.
 
+撮影の記録は, オン・オフにかかわらず, 指定の日数がたつと`captures.log`から外します. ごみ箱へ移せなかった画像の記録は次回のために残します. ネットワーク上や外付けのドライブなど, ごみ箱のない場所の画像は消しません.
+
 ## 困ったとき
 
 [よくある質問](https://maonthemoon.github.io/wakudori/manual.html#faq)を見てください. 不具合や要望は[Issues](https://github.com/maonthemoon/wakudori/issues)で知らせてください. `error.log`を添えるときは, フォルダーの場所やユーザー名が入っていないか, 先に中身を確かめてください.

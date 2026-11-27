@@ -26,30 +26,33 @@ namespace Wakudori
 
     internal static class Cleanup
     {
-        // 自動整理がオフのときは, なくなった画像の記録だけを外す
-        public static List<CaptureRecord> SelectMissing(List<CaptureRecord> records, Func<string, CaptureFileState?> readState)
+        public static int RunIfSettingsReadable(bool canSave, Func<int> run)
         {
-            return records.FindAll(record =>
-            {
-                CaptureFileState? state = readState(record.FullPath);
-                return state.HasValue && !state.Value.Exists;
-            });
+            // 読めなかった設定の既定値で撮影記録を外さない.
+            return canSave ? run() : 0;
         }
 
-        public static CleanupResult Select(IEnumerable<CaptureRecord> records, DateTime now, int days,
-            Func<string, CaptureFileState?> readState)
+        public static CleanupResult Select(IEnumerable<CaptureRecord> records, DateTime now, int days, bool autoDelete,
+            Func<string, CaptureFileState?> readState, Func<string, bool> isOnFixedDrive)
         {
             CleanupResult result = new CleanupResult();
             DateTime nowUtc = now.ToUniversalTime();
             TimeSpan minAge = TimeSpan.FromDays(days);
             foreach (CaptureRecord record in records)
             {
-                CaptureFileState? state = readState(record.FullPath);
-                if (!state.HasValue) result.ToKeep.Add(record); // 状態を確認できなければ次の回に持ち越す
-                else if (!Matches(record, state.Value)) result.ToForget.Add(record);
                 // 夏時間で時計が変わっても, 24時間を1日として数える
-                else if (nowUtc - record.CapturedAt.ToUniversalTime() >= minAge) result.ToRecycle.Add(record);
-                else result.ToKeep.Add(record);
+                bool expired = nowUtc - record.CapturedAt.ToUniversalTime() >= minAge;
+                if (expired && !autoDelete)
+                {
+                    result.ToForget.Add(record);
+                    continue;
+                }
+
+                CaptureFileState? state = readState(record.FullPath);
+                if (state.HasValue && !Matches(record, state.Value)) result.ToForget.Add(record);
+                else if (!expired) result.ToKeep.Add(record);
+                else if (state.HasValue && isOnFixedDrive(record.FullPath)) result.ToRecycle.Add(record);
+                else result.ToForget.Add(record);
             }
             return result;
         }

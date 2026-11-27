@@ -6,7 +6,7 @@ namespace Wakudori
 {
     internal static class CaptureRecycler
     {
-        // 確かに無い場合だけ記録から除けるよう, 状態を読めない場合はnullを返す
+        // ファイルがない場合と区別できるよう, 状態を読めない場合はnullを返す
         public static CaptureFileState? ReadState(string path)
         {
             return ReadState(path, Directory.Exists);
@@ -39,7 +39,7 @@ namespace Wakudori
 
         private static CaptureFileState? MissingState(string path, Func<string, bool> rootExists)
         {
-            // ドライブや共有が使えない場合は記録を残す
+            // ドライブや共有が使えない場合は, ファイルの有無を確かめられない
             return rootExists(Path.GetPathRoot(path)) ? new CaptureFileState() : (CaptureFileState?)null;
         }
 
