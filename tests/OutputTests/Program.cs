@@ -16,15 +16,17 @@ internal static class Program
     static int Main()
     {
         DateTime t = new DateTime(2026, 11, 20, 9, 5, 7);
-        Eq("null", "screenshot_20261120_090507.png", FileNaming.BuildFileName(null, t));
-        Eq("empty", "screenshot_20261120_090507.png", FileNaming.BuildFileName("", t));
-        Eq("whitespace", "screenshot_20261120_090507.png", FileNaming.BuildFileName("  \t ", t));
-        Eq("japanese", "設計図_20261120_090507.png", FileNaming.BuildFileName("設計図", t));
-        Eq("trim", "a b_20261120_090507.png", FileNaming.BuildFileName("  a b  ", t));
+        Eq("null", "20261120_090507.png", FileNaming.BuildFileName(null, t));
+        Eq("empty", "20261120_090507.png", FileNaming.BuildFileName("", t));
+        Eq("whitespace", "20261120_090507.png", FileNaming.BuildFileName("  \t ", t));
+        Eq("japanese", "20261120_090507_設計図.png", FileNaming.BuildFileName("設計図", t));
+        Eq("trim", "20261120_090507_a b.png", FileNaming.BuildFileName("  a b  ", t));
+        Eq("trailing dots", "20261120_090507_a.png", FileNaming.BuildFileName("  a...  ", t));
+        Eq("only dots", "20261120_090507.png", FileNaming.BuildFileName("  ...  ", t));
         foreach (char c in "\\/:*?\"<>|")
-            Eq("invalid " + c, "a_b_20261120_090507.png", FileNaming.BuildFileName("a" + c + "b", t));
-        Eq("control", "a_b_20261120_090507.png", FileNaming.BuildFileName("a\nb", t));
-        Eq("only invalid", "__20261120_090507.png", FileNaming.BuildFileName("?", t));
+            Eq("invalid " + c, "20261120_090507_a_b.png", FileNaming.BuildFileName("a" + c + "b", t));
+        Eq("control", "20261120_090507_a_b.png", FileNaming.BuildFileName("a\nb", t));
+        Eq("only invalid", "20261120_090507__.png", FileNaming.BuildFileName("?", t));
 
         HashSet<string> set = new HashSet<string>();
         Func<string, bool> ex = p => set.Contains(p);
@@ -36,8 +38,8 @@ internal static class Program
         set.Add(p2);
         Eq("unique 3", System.IO.Path.Combine("d", "x_3.png"), FileNaming.UniquePath("d", "x.png", ex));
 
-        Eq("edit name", "会議_20261120_090507_edit.png", FileNaming.BuildEditName(System.IO.Path.Combine("d", "会議_20261120_090507.png")));
-        Eq("edit name with dot", "v1.2_20261120_090507_2_edit.png", FileNaming.BuildEditName("v1.2_20261120_090507_2.png"));
+        Eq("edit name", "20261120_090507_会議_edit.png", FileNaming.BuildEditName(System.IO.Path.Combine("d", "20261120_090507_会議.png")));
+        Eq("edit name with dot", "20261120_090507_v1.2_2_edit.png", FileNaming.BuildEditName("20261120_090507_v1.2_2.png"));
 
         // 片方が失敗しても, もう片方は試す
         bool copied = false;

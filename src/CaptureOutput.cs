@@ -62,6 +62,7 @@ namespace Wakudori
             string name = FileNaming.BuildFileName(regionName, time);
             string path = FileNaming.UniquePath(saveDir, name, new Func<string, bool>(File.Exists));
             bmp.Save(path, ImageFormat.Png);
+            LogSavedImage(path, time);
             return path;
         }
 
@@ -72,7 +73,21 @@ namespace Wakudori
             Directory.CreateDirectory(dir);
             string path = FileNaming.UniquePath(dir, FileNaming.BuildEditName(originalPath), new Func<string, bool>(File.Exists));
             bmp.Save(path, ImageFormat.Png);
+            LogSavedImage(path, DateTime.Now);
             return path;
+        }
+
+        private static void LogSavedImage(string path, DateTime time)
+        {
+            try
+            {
+                FileInfo file = new FileInfo(path);
+                CaptureLog.Append(CaptureLog.DefaultPath, new CaptureRecord(time, file.Length, file.LastWriteTimeUtc.Ticks, file.FullName));
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("CaptureLog.Append", ex);
+            }
         }
     }
 }

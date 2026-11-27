@@ -22,7 +22,7 @@ Windows標準のスクリーンショット(Snipping Toolなど)では, 撮る�
 - **前と同じ範囲は, `Enter`だけ**: 前に撮った範囲に, はじめから枠が出ています. 準備は要らず, 2枚目からもうドラッグしません.
 - **よく撮る範囲は, 名前で呼び出す**: `Ctrl+S`で名前を付けると, 撮る画面の上に並びます. 乗せれば下見, クリックか数字キー`1`〜`9`で呼び出しです.
 - **いつ撮っても, 位置も大きさも同じ**: 一度だけ, 矢印キーで1pxずつ合わせておけば, 来週も同じ範囲です. 先週の画像と, そのまま見比べられます.
-- **ファイル名で, 何の画像か分かる**: 保存した範囲で撮ると, `KPI_20261126_091500.png`のように範囲の名前が付きます.
+- **ファイル名で, 何の画像か分かる**: 保存した範囲で撮ると, `20261126_091500_KPI.png`のように日時の後ろに範囲の名前が付きます.
 
 モニター全体の撮影(`F`)と, 撮ってすぐの書き込みや黒塗り(`E`)もできます. 撮った画像は, クリップボードとPNGの両方に出ます.
 
@@ -90,7 +90,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 | 場所 | 中身 |
 |---|---|
-| `ピクチャ\Screenshots\` | 撮った画像. `<範囲の名前>_yyyyMMdd_HHmmss.png`(名前のない範囲は`screenshot_...`) |
+| `ピクチャ\Screenshots\` | 撮った画像. `yyyyMMdd_HHmmss_<範囲の名前>.png`(名前のない範囲は`yyyyMMdd_HHmmss.png`) |
 | `%APPDATA%\Wakudori\settings.json` | ホットキー(`hotkey`), 画像の保存先(`saveDir`), 撮影キー(`captureKey`) |
 | `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
@@ -117,11 +117,12 @@ C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
 ### テスト
 
-WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラーの記録, ホットキーの文字列, `regions.json`の読み書き, 書き込みの並び)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
+WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラーの記録, 保存した画像の記録, ホットキーの文字列, `regions.json`の読み書き, 書き込みの並び)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
 
 ```sh
 dotnet run --project tests/SelectionTests
 dotnet run --project tests/OutputTests
+dotnet run --project tests/CaptureLogTests
 dotnet run --project tests/HotkeyTests
 dotnet run --project tests/RegionTests
 dotnet run --project tests/MarkTests

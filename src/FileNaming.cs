@@ -7,14 +7,12 @@ namespace Wakudori
     // ファイル名の組み立て(UIに依存しない)
     internal static class FileNaming
     {
-        private const string DefaultName = "screenshot";
-
-        // D2: <範囲名>_yyyyMMdd_HHmmss.png. 範囲名が空なら screenshot
+        // 日時の後に範囲名を付ける. 範囲名が空なら日時だけ
         public static string BuildFileName(string regionName, DateTime time)
         {
             string name = Sanitize(regionName);
-            if (name.Length == 0) name = DefaultName;
-            return name + "_" + time.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".png";
+            string stamp = time.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            return stamp + (name.Length == 0 ? "" : "_" + name) + ".png";
         }
 
         private static string Sanitize(string s)
