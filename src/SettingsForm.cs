@@ -25,8 +25,7 @@ namespace Wakudori
         private readonly ThemedButton resetFolder;
         private readonly Panel cleanupRow;
         private readonly SettingsSwitch cleanupSwitch;
-        private readonly NumericUpDown cleanupDays;
-        private readonly Label cleanupDaysUnit;
+        private readonly ComboBox cleanupDays;
         private readonly SettingsSwitch startupSwitch;
         private const int ControlHeight = 32; // ボタンの高さ(hikidashiのCTL_H)
 
@@ -72,7 +71,7 @@ namespace Wakudori
             Panel content = new Panel { AutoScroll = true, Location = new Point(1, top), Width = width - 2 };
             Controls.Add(content);
             int y = S(4);
-            Panel capture = AddCard(content, pad - 1, cardWidth, "撮影", y);
+            Panel capture = AddCard(content, pad - 1, cardWidth, "ホットキー", y);
             ThemedButton changeHotkey = Button("変更", ButtonKind.Secondary, ChangeHotkey);
             changeHotkey.Enabled = settings.CanSave;
             hotkey = new Label
@@ -80,7 +79,7 @@ namespace Wakudori
                 Font = small, ForeColor = Theme.TextSecondary, TextAlign = ContentAlignment.MiddleRight,
                 UseMnemonic = false, AutoEllipsis = true, Size = new Size(S(162), S(32))
             };
-            AddRow(capture, "ホットキー", "選択画面を開くキー", hotkey, changeHotkey);
+            AddRow(capture, "起動キー", "選択画面を開くキー", hotkey, changeHotkey);
             RefreshHotkey();
 
             captureKey = Choice("撮影キー", 80);
@@ -91,9 +90,15 @@ namespace Wakudori
             }
             captureKey.SelectedItem = ((char)settings.CaptureVk).ToString();
             captureKey.SelectedIndexChanged += ChangeCaptureKey;
-            AddRow(capture, "撮影キー", "Enterのほかに撮るキー. 左手で押せるキー", captureKey);
+            AddRow(capture, "撮影キー", "Enterのほかに撮るキー", captureKey);
 
             y = capture.Bottom + S(18);
+            Panel startup = AddCard(content, pad - 1, cardWidth, "起動", y);
+            startupSwitch = new SettingsSwitch("PC起動時に起動", S(42), S(24)) { Checked = Startup.IsEnabled(), Enabled = settings.CanSave };
+            startupSwitch.Click += ToggleStartup;
+            AddRow(startup, "PC起動時に起動", (Label)null, startupSwitch);
+
+            y = startup.Bottom + S(18);
             Panel storage = AddCard(content, pad - 1, cardWidth, "保存", y);
             ThemedButton changeFolder = Button("変更", ButtonKind.Secondary, ChooseSaveFolder);
             changeFolder.Enabled = settings.CanSave;
@@ -112,31 +117,17 @@ namespace Wakudori
                 if (label is Label) label.Click += ToggleCleanup;
             cleanupRow.Cursor = settings.CanSave ? Cursors.Hand : Cursors.Default;
 
-            // 日数は打ち込むか上下の矢印で変える. 範囲の外の値は, 確定したときに1〜3650へ収まる.
-            // 打ち込んでいる途中は反映せず, Enter, ほかの項目へ移る, 画面を閉じるのどれかで確定する
-            cleanupDays = new NumericUpDown
-            {
-                AccessibleName = "日数", Font = body, Width = S(80), TextAlign = HorizontalAlignment.Right,
-                Minimum = AppSettings.MinAutoDeleteDays, Maximum = AppSettings.MaxAutoDeleteDays,
-                Value = settings.AutoDeleteDays
-            };
-            cleanupDays.ValueChanged += ChangeCleanupDays;
-            cleanupDaysUnit = new Label
-            {
-                Text = "日", Font = body, ForeColor = Theme.Text, BackColor = Color.Transparent, UseMnemonic = false,
-                AutoSize = false, TextAlign = ContentAlignment.MiddleLeft,
-                Size = new Size(TextRenderer.MeasureText("日", body).Width, cleanupDays.Height)
-            };
+            // 日数は選択肢から選ぶ(H18. 打ち込みはしない)
+            cleanupDays = Choice("日数", 105);
+            cleanupDays.FormattingEnabled = true;
+            cleanupDays.Format += delegate(object sender, ListControlConvertEventArgs e) { e.Value = e.ListItem + "日"; };
+            foreach (int days in SettingsValues.CleanupDays(settings.AutoDeleteDays)) cleanupDays.Items.Add(days);
+            cleanupDays.SelectedItem = settings.AutoDeleteDays;
+            cleanupDays.SelectedIndexChanged += ChangeCleanupDays;
             RefreshCleanupDays();
-            AddRow(storage, "日数", "撮ってから何日たった画像を移すか. 1〜3650日", cleanupDays, cleanupDaysUnit);
+            AddRow(storage, "日数", (Label)null, cleanupDays);
 
-            y = storage.Bottom + S(18);
-            Panel startup = AddCard(content, pad - 1, cardWidth, "起動", y);
-            startupSwitch = new SettingsSwitch("PC起動時に起動", S(42), S(24)) { Checked = Startup.IsEnabled(), Enabled = settings.CanSave };
-            startupSwitch.Click += ToggleStartup;
-            AddRow(startup, "PC起動時に起動", (Label)null, startupSwitch);
-
-            int contentHeight = startup.Bottom + S(16);
+            int contentHeight = storage.Bottom + S(16);
             Rectangle work = Screen.FromPoint(Cursor.Position).WorkingArea;
             int footerHeight = S(60);
             int maxHeight = Math.Min(S(660), work.Height - S(24));
@@ -341,22 +332,15 @@ namespace Wakudori
         {
             cleanupDays.Enabled = settings.CanSave && settings.AutoDelete;
             cleanupDays.BackColor = cleanupDays.Enabled ? Theme.Surface : Theme.BgSubtle;
-            cleanupDaysUnit.ForeColor = cleanupDays.Enabled ? Theme.Text : Theme.TextTertiary;
         }
 
         private void ChangeCleanupDays(object sender, EventArgs e)
         {
-            int days = (int)cleanupDays.Value;
+            if (!(cleanupDays.SelectedItem is int)) return;
+            int days = (int)cleanupDays.SelectedItem;
             if (days == settings.AutoDeleteDays) return;
             if (TrySave("autoDeleteDays", days)) settings.AutoDeleteDays = days;
-            else cleanupDays.Value = settings.AutoDeleteDays;
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            // 打ち込んだまま閉じたときも反映する(Valueを読むと, 打ち込んだ文字が確定してValueChangedが起きる)
-            if (cleanupDays.Enabled) { decimal unused = cleanupDays.Value; }
-            base.OnFormClosing(e);
+            else cleanupDays.SelectedItem = settings.AutoDeleteDays;
         }
 
         private void ToggleStartup(object sender, EventArgs e)
@@ -402,7 +386,7 @@ namespace Wakudori
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Escape && !captureKey.DroppedDown)
+            if (keyData == Keys.Escape && !captureKey.DroppedDown && !cleanupDays.DroppedDown)
             {
                 Close();
                 return true;

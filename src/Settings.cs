@@ -16,7 +16,7 @@ namespace Wakudori
         public string CaptureKeyProblem; // captureKeyが使えないキーだったときの知らせ. なければnull
         public const int DefaultAutoDeleteDays = 30;
         public const int MinAutoDeleteDays = 1;
-        public const int MaxAutoDeleteDays = 3650;
+        public const int MaxAutoDeleteDays = 365; // 最大1年(H18)
         public bool AutoDelete = false;
         public int AutoDeleteDays = DefaultAutoDeleteDays;
         public string AutoDeleteProblem;
@@ -69,7 +69,7 @@ namespace Wakudori
                 if (d.TryGetValue("autoDeleteDays", out v))
                 {
                     if (v is int && (int)v >= MinAutoDeleteDays && (int)v <= MaxAutoDeleteDays) s.AutoDeleteDays = (int)v;
-                    else s.AutoDeleteDaysProblem = "設定ファイルのautoDeleteDaysには1〜3650の整数を指定してください. "
+                    else s.AutoDeleteDaysProblem = "設定ファイルのautoDeleteDaysには1〜365の整数を指定してください. "
                         + DefaultAutoDeleteDays + "日を使います.\n" + path;
                 }
             }

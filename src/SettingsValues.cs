@@ -6,6 +6,9 @@ namespace Wakudori
 {
     internal static class SettingsValues
     {
+        // 設定画面の日数の選択肢(H18. 細かくは選ばせない. 最大1年)
+        private static readonly int[] DefaultDays = { 7, 14, 30, 60, 90, 180, 365 };
+
         public static void ApplyChanges(IDictionary<string, object> values, IDictionary<string, object> changes)
         {
             foreach (KeyValuePair<string, object> item in changes)
@@ -13,6 +16,15 @@ namespace Wakudori
                 if (item.Value == null) values.Remove(item.Key);
                 else values[item.Key] = item.Value;
             }
+        }
+
+        // 選択肢. 設定ファイルに選択肢にない日数(1〜365)が書いてあれば, その日数も順に足す
+        public static List<int> CleanupDays(int current)
+        {
+            List<int> days = new List<int>(DefaultDays);
+            int index = days.BinarySearch(current);
+            if (index < 0) days.Insert(~index, current);
+            return days;
         }
 
         public static string ShortenPath(string path, int width, Func<string, int> measure)

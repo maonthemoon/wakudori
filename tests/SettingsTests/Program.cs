@@ -15,6 +15,13 @@ internal static class SettingsTests
 
     private static int Main()
     {
+        Check("days: presets contain the selected value once", SettingsValues.CleanupDays(30)
+            .SequenceEqual(new[] { 7, 14, 30, 60, 90, 180, 365 }));
+        Check("days: custom value inserted in order", SettingsValues.CleanupDays(45)
+            .SequenceEqual(new[] { 7, 14, 30, 45, 60, 90, 180, 365 }));
+        Check("days: custom minimum", SettingsValues.CleanupDays(1).First() == 1
+            && SettingsValues.CleanupDays(1).Last() == 365);
+
         const string path = @"C:\Users\Wakudori\Pictures\Screenshots";
         Check("path: exact width leaves the path intact", SettingsValues.ShortenPath(path, path.Length, s => s.Length) == path);
         Check("path: keeps both ends", SettingsValues.ShortenPath(path, 15, s => s.Length) == @"C:\Use...nshots");
