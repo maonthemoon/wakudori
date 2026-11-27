@@ -44,11 +44,8 @@ namespace Wakudori
             string path = SettingsPath;
             try
             {
-                if (!File.Exists(path)) return s;
-                string json = File.ReadAllText(path);
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> d = ser.DeserializeObject(json) as Dictionary<string, object>;
-                if (d == null) throw new InvalidDataException("JSONのトップがオブジェクトではありません.");
+                Dictionary<string, object> d = ReadValues(path, new JavaScriptSerializer());
+                if (d == null) return s;
                 object v;
                 if (d.TryGetValue("hotkey", out v) && v is string && ((string)v).Trim().Length > 0)
                     s.Hotkey = ((string)v).Trim();
@@ -85,46 +82,58 @@ namespace Wakudori
             return s;
         }
 
-        // ホットキーだけを書き換えて保存する. ほかの項目(手で書いたものを含む)はそのまま残す.
-        // 一時ファイルに書いてから置き換える.
         public void SaveHotkey(string hotkey)
         {
-            if (!CanSave) throw new InvalidOperationException("設定ファイルが読めなかったので, 上書きしません. 直してから登録し直してください: " + SettingsPath);
-            string path = SettingsPath;
-            Directory.CreateDirectory(ConfigDir);
-            JavaScriptSerializer ser = new JavaScriptSerializer();
+            SaveValues(new Dictionary<string, object> { { "hotkey", hotkey } });
+            Hotkey = hotkey;
+        }
 
-            List<KeyValuePair<string, object>> items = new List<KeyValuePair<string, object>>();
-            if (File.Exists(path))
-            {
-                Dictionary<string, object> d = ser.DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
-                if (d == null) throw new InvalidDataException("設定ファイルのJSONのトップがオブジェクトではありません: " + path);
-                foreach (KeyValuePair<string, object> kv in d) items.Add(kv);
-            }
-            bool found = false;
-            for (int i = 0; i < items.Count; i++)
-            {
-                if (items[i].Key == "hotkey")
-                {
-                    items[i] = new KeyValuePair<string, object>("hotkey", hotkey);
-                    found = true;
-                }
-            }
-            if (!found) items.Insert(0, new KeyValuePair<string, object>("hotkey", hotkey));
+        // 書く直前に読み直し, 手で足した項目も残す. 一時ファイルを書き終えてから置き換える.
+        public void SaveValues(IDictionary<string, object> changes)
+        {
+            string path = SettingsPath;
+            if (!CanSave) throw new InvalidOperationException("設定ファイルを読めなかったので, 保存できません: " + path);
+            JavaScriptSerializer ser = new JavaScriptSerializer();
+            Dictionary<string, object> items = ReadValues(path, ser);
+            bool existed = items != null;
+            if (!existed) items = new Dictionary<string, object>();
+            SettingsValues.ApplyChanges(items, changes);
 
             StringBuilder sb = new StringBuilder("{\r\n");
-            for (int i = 0; i < items.Count; i++)
+            int remaining = items.Count;
+            foreach (KeyValuePair<string, object> item in items)
             {
-                sb.Append("  " + ser.Serialize(items[i].Key) + ": " + ser.Serialize(items[i].Value));
-                sb.Append(i < items.Count - 1 ? ",\r\n" : "\r\n");
+                sb.Append("  " + ser.Serialize(item.Key) + ": " + ser.Serialize(item.Value));
+                sb.Append(--remaining > 0 ? ",\r\n" : "\r\n");
             }
             sb.Append("}\r\n");
 
-            string tmp = path + ".tmp";
-            File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
-            if (File.Exists(path)) File.Replace(tmp, path, null);
-            else File.Move(tmp, path);
-            Hotkey = hotkey;
+            Directory.CreateDirectory(ConfigDir);
+            string tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
+                if (existed) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
+            }
+            catch
+            {
+                try { File.Delete(tmp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                throw;
+            }
+        }
+
+        private static Dictionary<string, object> ReadValues(string path, JavaScriptSerializer ser)
+        {
+            string json;
+            try { json = File.ReadAllText(path); }
+            catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) { return null; }
+            var values = ser.DeserializeObject(json) as Dictionary<string, object>;
+            if (values == null) throw new InvalidDataException("JSONのトップがオブジェクトではありません: " + path);
+            return values;
         }
     }
 }

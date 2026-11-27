@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -21,8 +22,9 @@ namespace Wakudori
         private readonly IntPtr iconHandle;
         private readonly Timer cleanupTimer;
         private bool firstCleanup = true;
-        private bool cleanupRunning;
-        private ToolStripMenuItem startupItem;
+        private CancellationTokenSource cleanupRun;
+        private int? requestedCleanupDays;
+        private SettingsForm settingsForm;
         private CaptureSession session;
         private bool dialogOpen;
         private volatile bool exiting;
@@ -88,9 +90,15 @@ namespace Wakudori
             ShowHotkeyDialog(false);
         }
 
-        private void ShowHotkeyDialog(bool firstRun)
+        internal string CurrentHotkey
         {
-            if (dialogOpen || session != null) return;
+            get { return hotkeyWindow.IsRegistered ? settings.Hotkey : null; }
+        }
+
+        internal bool ShowHotkeyDialog(bool firstRun, AppSettings editable = null)
+        {
+            if (dialogOpen || session != null || exiting) return false;
+            SettingsForm owner = editable == null ? null : settingsForm;
             dialogOpen = true;
             try
             {
@@ -99,12 +107,18 @@ namespace Wakudori
                 hotkeyWindow.Unregister();
 
                 string current = hadHotkey ? settings.Hotkey : null;
-                using (HotkeyForm form = new HotkeyForm(current, firstRun, TryRegister))
+                using (HotkeyForm form = new HotkeyForm(current, firstRun, spec => TryRegister(spec, editable, owner)))
                 {
-                    if (form.ShowDialog() == DialogResult.OK)
+                    if (owner != null)
+                    {
+                        form.StartPosition = FormStartPosition.CenterParent;
+                        form.ShowInTaskbar = false;
+                    }
+                    DialogResult result = owner == null ? form.ShowDialog() : form.ShowDialog(owner);
+                    if (result == DialogResult.OK)
                     {
                         if (firstRun) AskStartupOnFirstRun();
-                        return;
+                        return true;
                     }
                 }
 
@@ -124,6 +138,7 @@ namespace Wakudori
                         "ホットキーは登録されていません. トレイのアイコンをクリックすると範囲を選べます. 右クリックのメニューから登録できます.",
                         ToolTipIcon.Info);
                 }
+                return false;
             }
             finally
             {
@@ -133,7 +148,7 @@ namespace Wakudori
         }
 
         // 登録ダイアログから呼ばれる. 登録できたら設定ファイルにも書く.
-        private string TryRegister(HotkeySpec spec)
+        private string TryRegister(HotkeySpec spec, AppSettings editable, SettingsForm owner)
         {
             string error = hotkeyWindow.Register(spec);
             if (error != null) return error;
@@ -141,14 +156,21 @@ namespace Wakudori
             string text = HotkeyText.Format(spec);
             try
             {
-                settings.SaveHotkey(text);
+                (editable ?? settings).SaveHotkey(text);
             }
             catch (Exception ex)
             {
-                settings.Hotkey = text;
+                if (editable != null)
+                {
+                    // 登録を保留し, 画面を閉じるときに前のキーへ戻す.
+                    hotkeyWindow.Unregister();
+                    owner.ShowSaveError(ex.Message);
+                    return "設定を保存できませんでした.\r\n" + ex.Message;
+                }
                 Notice.Show("設定ファイルに保存できませんでした",
                     "ホットキーは登録しましたが, 次に起動したときは登録し直しになります.\r\n\r\n" + ex.Message, NoticeKind.Warning);
             }
+            settings.Hotkey = text;
             return null;
         }
 
@@ -159,46 +181,70 @@ namespace Wakudori
         {
             if (Startup.IsEnabled()) return;
             if (!Notice.Confirm(null, "PCの起動時にWakudoriを起動しますか?",
-                "あとからトレイのメニューの「PC起動時に起動」で変えられます.", "起動する")) return;
-            ShowStartupError(Startup.SetEnabled(true));
-        }
-
-        private void ToggleStartup()
-        {
-            ShowStartupError(Startup.SetEnabled(!Startup.IsEnabled()));
-        }
-
-        private static void ShowStartupError(string error)
-        {
-            if (error == null) return;
-            Notice.Show("自動起動を設定できませんでした", error, NoticeKind.Warning);
+                "あとからトレイの「設定」で変えられます.", "起動する")) return;
+            string error = Startup.SetEnabled(true);
+            if (error != null) Notice.Show("自動起動を設定できませんでした", error, NoticeKind.Warning);
         }
 
         // ---- 古い画像の自動整理 ----
 
-        private async void OnCleanupTick(object sender, EventArgs e)
+        private void OnCleanupTick(object sender, EventArgs e)
         {
-            if (cleanupRunning || exiting) return;
+            StartCleanup();
+        }
+
+        internal void ApplyCleanupSetting(bool enabled, int days)
+        {
+            if (enabled) StartCleanup(days);
+            else
+            {
+                requestedCleanupDays = null;
+                if (cleanupRun != null) cleanupRun.Cancel();
+            }
+        }
+
+        internal static int CountCleanupCandidates(int days)
+        {
+            return SelectCleanup(CaptureLog.Read(CaptureLog.DefaultPath), days).ToRecycle
+                .Count(record => CaptureRecycler.IsOnFixedDrive(record.FullPath));
+        }
+
+        private static CleanupResult SelectCleanup(List<CaptureRecord> records, int days)
+        {
+            return Cleanup.Select(records, DateTime.UtcNow, days, CaptureRecycler.ReadState);
+        }
+
+        private async void StartCleanup(int? confirmedDays = null)
+        {
+            if (exiting) return;
+            if (cleanupRun != null)
+            {
+                if (confirmedDays.HasValue) requestedCleanupDays = confirmedDays;
+                return;
+            }
             cleanupTimer.Stop();
-            cleanupRunning = true;
+            cleanupRun = new CancellationTokenSource();
+            CancellationToken token = cleanupRun.Token;
             bool pruneMissing = firstCleanup;
             firstCleanup = false;
             try
             {
-                // オフでも設定だけは定期的に読み, 手でオンにしたときに反映する
                 cleanupTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
                 cleanupTimer.Start();
-                AppSettings latest = LoadCleanupSettings();
+                // 設定画面からの実行には確認に使った日数を使う. 定期実行ではファイルを読み直す.
+                AppSettings latest = confirmedDays.HasValue
+                    ? new AppSettings { AutoDelete = true, AutoDeleteDays = confirmedDays.Value }
+                    : LoadCleanupSettings();
                 if (exiting || (!latest.AutoDelete && !pruneMissing)) return;
                 int moved = 0;
                 bool skippedLocation = false;
-                await Task.Run(() => RunCleanup(latest, out moved, out skippedLocation));
+                await Task.Run(() => RunCleanup(latest, token, out moved, out skippedLocation));
 
                 // awaitの後はWinFormsのUIスレッドで知らせる
                 if (exiting) return;
                 if (moved > 0)
                     tray.ShowBalloonTip(5000, "Wakudori", latest.AutoDeleteDays + "日を過ぎたWakudoriの画像を" + moved + "枚ごみ箱へ移しました", ToolTipIcon.Info);
-                if (skippedLocation)
+                if (skippedLocation && !token.IsCancellationRequested)
                     Notice.Show("画像の自動整理", "ネットワーク上などごみ箱のない場所にある画像は消しません", NoticeKind.Info);
             }
             catch (Exception ex)
@@ -207,7 +253,14 @@ namespace Wakudori
             }
             finally
             {
-                cleanupRunning = false;
+                cleanupRun.Dispose();
+                cleanupRun = null;
+                if (requestedCleanupDays.HasValue)
+                {
+                    int days = requestedCleanupDays.Value;
+                    requestedCleanupDays = null;
+                    StartCleanup(days);
+                }
             }
         }
 
@@ -229,7 +282,7 @@ namespace Wakudori
             return latest;
         }
 
-        private void RunCleanup(AppSettings latest, out int moved, out bool skippedLocation)
+        private void RunCleanup(AppSettings latest, CancellationToken token, out int moved, out bool skippedLocation)
         {
             moved = 0;
             skippedLocation = false;
@@ -245,11 +298,11 @@ namespace Wakudori
                 }
                 else
                 {
-                    CleanupResult result = Cleanup.Select(records, DateTime.UtcNow, latest.AutoDeleteDays, CaptureRecycler.ReadState);
+                    CleanupResult result = SelectCleanup(records, latest.AutoDeleteDays);
                     removed = result.ToForget;
                     foreach (CaptureRecord record in result.ToRecycle)
                     {
-                        if (exiting) break;
+                        if (exiting || token.IsCancellationRequested) break;
                         if (!CaptureRecycler.IsOnFixedDrive(record.FullPath)) skippedLocation = true;
                         else if (CaptureRecycler.TryMove(record))
                         {
@@ -339,12 +392,9 @@ namespace Wakudori
             {
                 Notice.Show("撮影キーを読めません", latest.CaptureKeyProblem, NoticeKind.Warning);
             }
-            settings.SaveDir = latest.SaveDir;
-            settings.CanSave = latest.CanSave;
-
             try
             {
-                session = new CaptureSession(settings.SaveDir, (Keys)latest.CaptureVk, DefaultFrameSize, monitors, frozen);
+                session = new CaptureSession(latest.SaveDir, (Keys)latest.CaptureVk, DefaultFrameSize, monitors, frozen);
                 session.Finished += delegate { session = null; };
             }
             catch (Exception ex)
@@ -375,25 +425,42 @@ namespace Wakudori
             menu.BackColor = Theme.Bg;
             menu.ForeColor = Theme.Text;
             menu.Padding = new Padding(0, 4, 0, 4);
-            menu.Opening += delegate { startupItem.Checked = Startup.IsEnabled(); }; // 手でレジストリを変えても合うように, 開くたびに読む
             ToolStripMenuItem select = new ToolStripMenuItem("撮影");
             select.Font = new Font(select.Font, FontStyle.Bold);
             select.Click += delegate { OpenSelection(); };
             menu.Items.Add(select);
-            menu.Items.Add(new ToolStripMenuItem("ホットキー再登録", null, delegate { ShowHotkeyDialog(false); }));
+            menu.Items.Add(new ToolStripMenuItem("設定", null, delegate { OpenSettings(); }));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("画像保存フォルダーを開く", null, delegate { OpenFolder(settings.SaveDir); }));
-            menu.Items.Add(new ToolStripMenuItem("設定フォルダーを開く", null, delegate { OpenFolder(AppSettings.ConfigDir); }));
-            menu.Items.Add(new ToolStripSeparator());
-            startupItem = new ToolStripMenuItem("PC起動時に起動", null, delegate { ToggleStartup(); });
-            menu.Items.Add(startupItem);
+            menu.Items.Add(new ToolStripMenuItem("画像保存フォルダーを開く", null, delegate
+            {
+                string error;
+                AppSettings latest = AppSettings.Load(out error);
+                if (error != null) Notice.Show("設定ファイルを読めません", error, NoticeKind.Warning);
+                OpenFolder(latest.SaveDir);
+            }));
             menu.Items.Add(new ToolStripMenuItem("マニュアル", null, delegate { OpenManual(); }));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("終了", null, delegate { Exit(); }));
             return menu;
         }
 
-        private static void OpenFolder(string path)
+        private void OpenSettings()
+        {
+            if (exiting || dialogOpen || askingExit) return;
+            if (settingsForm != null)
+            {
+                if (settingsForm.WindowState == FormWindowState.Minimized) settingsForm.WindowState = FormWindowState.Normal;
+                settingsForm.Activate();
+                return;
+            }
+            string error;
+            AppSettings latest = AppSettings.Load(out error);
+            settingsForm = new SettingsForm(this, latest);
+            settingsForm.FormClosed += delegate { settingsForm = null; };
+            settingsForm.Show();
+        }
+
+        internal static void OpenFolder(string path)
         {
             try
             {
@@ -469,10 +536,11 @@ namespace Wakudori
 
         private void Exit()
         {
-            if (exiting || askingExit) return;
+            if (exiting || askingExit || dialogOpen) return;
             if (!ConfirmDiscardMarks()) return;
             exiting = true;
             cleanupTimer.Dispose();
+            if (settingsForm != null) settingsForm.Close();
             if (session != null) session.Close();
             tray.Visible = false;
             tray.Dispose();

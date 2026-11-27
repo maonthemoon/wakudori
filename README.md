@@ -47,7 +47,7 @@ Windows標準のスクリーンショット(Snipping Toolなど)では, 撮る�
 2. 展開した中の`bin\Wakudori.exe`を起動します. 署名していないので, 「WindowsによってPCが保護されました」と出たら「詳細情報」→「実行」を押します.
 3. ホットキーの登録画面が出たら, 使うキー(例: `Ctrl+Shift+S`)を押して「登録」を押します. Wakudoriはタスクトレイに常駐します.
 
-PCの起動時に起動するかは, 初めて起動したときに聞かれます. あとからでも, トレイのメニューで切り替えられます.
+PCの起動時に起動するかは, 初めて起動したときに聞かれます. あとからでも, トレイの「設定」で切り替えられます.
 
 ### gitを使う場合
 
@@ -61,7 +61,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 ### アンインストール
 
-トレイのメニューで「PC起動時に起動」を外して「終了」し, 展開した(またはcloneした)フォルダーと`%APPDATA%\Wakudori`を消します.
+トレイの「設定」で「PC起動時に起動」をオフにしてから, トレイの「終了」を選びます. 展開した(またはcloneした)フォルダーと`%APPDATA%\Wakudori`を消します.
 
 ## 使い方
 
@@ -73,7 +73,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 | 操作 | 動き |
 |---|---|
-| `Enter`, `A` | 撮る(`A`は左手で押せる撮影キー. `settings.json`の`captureKey`で変えられる) |
+| `Enter`, `A` | 撮る(`A`は既定の撮影キー. 設定画面で変えられる) |
 | `1`〜`9`, 名前をクリック | 保存した範囲を呼び出す(名前に乗せると下見) |
 | `Ctrl+S` | 今の枠に名前を付けて保存する |
 | 枠の外をドラッグ | 新しい枠を引く(離しても撮らない) |
@@ -86,6 +86,12 @@ git clone https://github.com/maonthemoon/wakudori.git
 
 名前はダブルクリックで変え, ドラッグで並べ替え, 右端の×で削除します. 書き込む前の画像も保存フォルダーに残るので, 隠した画像を渡すときは`_edit`の付いたほうを渡してください.
 
+### トレイのメニューと設定
+
+トレイアイコンを右クリックすると, 「撮影」「設定」「画像保存フォルダーを開く」「マニュアル」「終了」が並びます.
+
+「設定」では, ホットキー, 撮影キー, 画像の保存先, 古い画像の自動整理と日数, PC起動時の自動起動を変えられます. 変更はその場で反映されます. `settings.json`を手で編集するときは, 設定画面の下にある「設定フォルダーを開く」からファイルを探せます. ホットキーを手で編集した場合は, Wakudoriを起動し直すと反映されます.
+
 ### 保存されるもの
 
 | 場所 | 中身 |
@@ -95,7 +101,7 @@ git clone https://github.com/maonthemoon/wakudori.git
 | `%APPDATA%\Wakudori\error.log` | 想定外のエラーの記録. このPCに残すだけで, どこにも送らない(エラーが起きたときだけできる) |
 | `%APPDATA%\Wakudori\regions.json` | 保存した範囲と前回の範囲. 手で編集してもよい(選択画面を開くたびに読み直す) |
 
-`autoDelete`は初めはオフです. `true`にすると, Wakudoriが撮って記録した画像だけを, 撮影から`autoDeleteDays`(既定30日)がたったらごみ箱へ移します. この版より前の画像や, 移した・名前を変えた・直した画像は消しません.
+「古い画像をごみ箱へ移す」(`autoDelete`)は初めはオフです. オンにすると, Wakudoriが撮って記録した画像だけを, 撮影から指定の日数(`autoDeleteDays`, 既定30日)がたったらごみ箱へ移します. 設定画面でオンにするときに対象の画像があれば, 移す枚数を表示して確認します. この版より前の画像や, 移した・名前を変えた・直した画像は消しません.
 
 ## 困ったとき
 
@@ -119,7 +125,7 @@ C# 5の文法で書いています(`csc.exe`がC# 5までのため).
 
 ### テスト
 
-WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラーの記録, 保存した画像の記録, ホットキーの文字列, `regions.json`の読み書き, 書き込みの並び)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
+WinFormsに依存しない部分(枠の計算, ファイル名, 出力とエラーの記録, 保存した画像の記録, ホットキーの文字列, `regions.json`の読み書き, 書き込みの並び, 設定の更新と表示)のテストです. .NET 8 SDKがあれば, Windows以外でも動きます.
 
 ```sh
 dotnet run --project tests/SelectionTests
@@ -129,6 +135,7 @@ dotnet run --project tests/CleanupTests
 dotnet run --project tests/HotkeyTests
 dotnet run --project tests/RegionTests
 dotnet run --project tests/MarkTests
+dotnet run --project tests/SettingsTests
 ```
 
 `tests/e2e.ps1`は, ビルドしたexeを実際に動かし, キーで撮れるかを確かめます. `%APPDATA%\Wakudori\settings.json`を書き換えるので, GitHub ActionsのWindows(`e2e`のjob)だけで動かします.
