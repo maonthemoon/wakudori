@@ -26,7 +26,7 @@ namespace Wakudori
             ShowInTaskbar = false;
             Text = "Wakudori - 範囲に名前を付ける";
 
-            float scale = DeviceDpi / 96f;
+            float scale = UiScale;
             int pad = S(32);
             int width = S(480);
             int inner = width - pad * 2;

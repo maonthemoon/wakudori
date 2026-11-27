@@ -15,6 +15,8 @@ namespace Wakudori
         public int CaptureVk = HotkeyText.DefaultCaptureVk; // 撮影キー(H11). Enterと同じく撮る. 書き込みの画面では完了
         public string CaptureKeyProblem; // captureKeyが使えないキーだったときの知らせ. なければnull
         public const int DefaultAutoDeleteDays = 30;
+        public const int MinAutoDeleteDays = 1;
+        public const int MaxAutoDeleteDays = 3650;
         public bool AutoDelete = false;
         public int AutoDeleteDays = DefaultAutoDeleteDays;
         public string AutoDeleteProblem;
@@ -66,7 +68,7 @@ namespace Wakudori
                 }
                 if (d.TryGetValue("autoDeleteDays", out v))
                 {
-                    if (v is int && (int)v >= 1 && (int)v <= 3650) s.AutoDeleteDays = (int)v;
+                    if (v is int && (int)v >= MinAutoDeleteDays && (int)v <= MaxAutoDeleteDays) s.AutoDeleteDays = (int)v;
                     else s.AutoDeleteDaysProblem = "設定ファイルのautoDeleteDaysには1〜3650の整数を指定してください. "
                         + DefaultAutoDeleteDays + "日を使います.\n" + path;
                 }

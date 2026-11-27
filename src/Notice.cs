@@ -54,7 +54,7 @@ namespace Wakudori
             }
             y += S(28);
 
-            ThemedButton ok = new ThemedButton("OK", ButtonKind.Accent, Theme.BodyStrong(S(15)), DeviceDpi / 96f);
+            ThemedButton ok = new ThemedButton("OK", ButtonKind.Accent, Theme.BodyStrong(S(15)), UiScale);
             ok.Location = new Point(width - pad - ok.Width, y);
             ok.Click += delegate { Close(); };
             Controls.Add(ok);
@@ -84,7 +84,7 @@ namespace Wakudori
                 StartPosition = FormStartPosition.CenterParent;
                 ShowInTaskbar = false;
             }
-            float scale = DeviceDpi / 96f;
+            float scale = UiScale;
             int pad = S(32);
             int width = S(440);
             int inner = width - pad * 2;

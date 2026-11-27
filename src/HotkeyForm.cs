@@ -26,7 +26,7 @@ namespace Wakudori
             Text = "Wakudori - ホットキーの登録";
             KeyPreview = true;
 
-            float scale = DeviceDpi / 96f;
+            float scale = UiScale;
             int pad = S(32);
             int width = S(480);
             int inner = width - pad * 2;

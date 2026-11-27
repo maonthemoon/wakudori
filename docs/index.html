@@ -1099,7 +1099,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
           </article>
           <article class="card">
             <h3 class="card__title">ファイル名で, 何の画像か分かる</h3>
-            <p class="card__body">保存した範囲で撮ると, <code>KPI_20261126_091500.png</code>のように範囲の名前が付きます. 毎週の画像が, 名前ごとに並びます.</p>
+            <p class="card__body">保存した範囲で撮ると, <code>20261126_091500_KPI.png</code>のように日時の後ろに範囲の名前が付きます. 名前の順に並べれば, 撮った順です.</p>
           </article>
         </div>
       </div>
@@ -1551,7 +1551,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
           keycap.hidden = true;
           await wait(700, id);
           await capture(id);
-          showFolder([["売上グラフ_20261120_102431.png", R.graph], ["KPI_20261120_102415.png", R.kpi], ["チャネル別_20261113_101502.png", R.channel], ["売上グラフ_20261113_101448.png", R.graph]]);
+          showFolder([["20261120_102431_売上グラフ.png", R.graph], ["20261120_102415_KPI.png", R.kpi], ["20261113_101502_チャネル別.png", R.channel], ["20261113_101448_売上グラフ.png", R.graph]]);
           await wait(2600, id);
         },
       },
@@ -1573,7 +1573,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
           keycap.hidden = true;
           await wait(1100, id);
           await capture(id);
-          showFolder([["screenshot_20261120_102431.png", R.channel], ["screenshot_20261113_101502.png", R.graph]]);
+          showFolder([["20261120_102431.png", R.channel], ["20261113_101502.png", R.graph]]);
           await wait(2600, id);
         },
       },

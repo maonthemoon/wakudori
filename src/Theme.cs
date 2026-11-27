@@ -212,7 +212,9 @@ namespace Wakudori
 
         public ThemedForm()
         {
-            scale = DeviceDpi / 96f;
+            // 開く場所(カーソルのあるモニター)の拡大率で大きさを決める. hikidashiの設定画面と同じ.
+            // DeviceDpiはWindows全体の値なので, 拡大率の違うモニターで開くと小さくなる
+            scale = Program.GetMonitorDpi(new Rectangle(Cursor.Position, new Size(1, 1))) / 96f;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.None;
@@ -227,6 +229,9 @@ namespace Wakudori
             Icon = Icon.FromHandle(iconHandle);
             MouseDown += OnDragMouseDown;
         }
+
+        // 96 DPIのときを1とした, この画面の倍率
+        protected float UiScale { get { return scale; } }
 
         // 96 DPIのときの長さを, この画面のDPIでの長さにする.
         protected int S(float v)
