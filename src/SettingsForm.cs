@@ -36,7 +36,7 @@ namespace Wakudori
             this.settings = settings;
             Text = "Wakudori - 設定";
             TopMost = false;
-            // 大きさはhikidashiの設定画面にそろえる(96dpiのときの値. 窓780×660まで, 余白24, 本文14px, 説明13px,
+            // 大きさはhikidashiの設定画面にそろえる(96dpiのときの値. 窓は幅612(hikidashiの780から左の一覧168を引いた分), 高さ660まで, 余白24, 本文14px, 説明13px,
             // 区分の見出し20px, 部品の高さ32, 下の帯60)
             body = Theme.Body(S(14));
             small = Theme.Body(S(13));
@@ -44,7 +44,7 @@ namespace Wakudori
             heading = Theme.Heading(S(28));
             sectionHeading = Theme.Heading(S(20));
 
-            int width = S(780);
+            int width = S(612);
             int pad = Math.Max(S(24), SystemInformation.VerticalScrollBarWidth + S(6));
             int cardWidth = width - pad * 2;
             Label version = AddText("Wakudori " + Application.ProductVersion, small, Theme.TextTertiary, pad, S(23), cardWidth);
