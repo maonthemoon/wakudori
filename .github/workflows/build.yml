@@ -5,7 +5,8 @@ name: build
 
 on:
   push:
-    branches: [main]
+    # wip/ で始まるブランチは, 非公開の開発用のリポジトリで作業中に確かめるためのもの(公開リポジトリには送らない)
+    branches: [main, "wip/**"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
