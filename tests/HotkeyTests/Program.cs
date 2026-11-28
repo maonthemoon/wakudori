@@ -151,9 +151,12 @@ internal static class HotkeyTests
         // 撮影キー(H11)
         int ck;
         Check("capturekey: A", HotkeyText.TryParseCaptureKey("A", out ck) && ck == 0x41);
+        Check("capturekey: Q", HotkeyText.TryParseCaptureKey("Q", out ck) && ck == 0x51);
         Check("capturekey: lower/trim", HotkeyText.TryParseCaptureKey(" q ", out ck) && ck == 0x51);
         Check("capturekey: Z", HotkeyText.TryParseCaptureKey("Z", out ck) && ck == 0x5A);
         Check("capturekey: default", HotkeyText.DefaultCaptureVk == 0x41);
+        Check("capturekey: rejects W", !HotkeyText.TryParseCaptureKey("W", out ck) && ck == 0);
+        Check("capturekey: rejects w", !HotkeyText.TryParseCaptureKey("w", out ck) && ck == 0);
         bool ckFails = true;
         string[] bad = { null, "", " ", "E", "e", "F", "f", "1", "AB", "Enter", "Space", "Tab", "Ctrl+A", "あ", "Ａ", "@" };
         foreach (string b in bad)

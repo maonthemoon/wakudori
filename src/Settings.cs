@@ -59,7 +59,7 @@ namespace Wakudori
                     int vk;
                     if (v is string && HotkeyText.TryParseCaptureKey((string)v, out vk)) s.CaptureVk = vk;
                     else s.CaptureKeyProblem = "設定ファイルの撮影キー(captureKey)「" + Convert.ToString(v) + "」は使えません. Aを使います.\n"
-                        + "使えるのは英字1文字です(EとFは除く): " + path;
+                        + "使えるのは英字1文字です(E, F, Wは除く): " + path;
                 }
                 if (d.TryGetValue("autoDelete", out v))
                 {
