@@ -81,18 +81,30 @@ internal static class Program
         Check(HasRgb(reduced, 2, 270, 11, 22, 33), "bottom right edge keeps its single pixel");
     }
 
-    static void TestHighlightsAndNoise()
+    static void TestSmallChangesAndNoise()
     {
         const int width = 1920;
         const int height = 1080;
         byte[] image = SolidBgra(width, height, 255);
         WatchThumb white = Thumb(image, width, height);
         Check(white.Width == 960 && white.Height == 540, "1920x1080 reduces to 960x540");
-        FillRect(image, width * 4, 101, 101, 300, 4, 255, 0, 0);
-        Check(WatchDetector.Changed(white, Thumb(image, width, height)), "a thin 300x4 red line is detected");
-        FillRect(image, width * 4, 101, 101, 300, 4, 255, 255, 255);
-        FillRect(image, width * 4, 141, 201, 200, 20, 30, 120, 180);
-        Check(WatchDetector.Changed(white, Thumb(image, width, height)), "a 200x20 highlight is detected");
+
+        // 入力のカーソル(150%の画面で幅3, 高さ30くらい)の点滅は撮らない.
+        FillRect(image, width * 4, 501, 301, 3, 30, 0, 0, 0);
+        Check(!WatchDetector.Changed(white, Thumb(image, width, height)), "a blinking text caret is ignored");
+
+        // マウスのポインタ(32x32)が別の場所へ動いても撮らない. 前の位置と今の位置の両方が変わる.
+        image = SolidBgra(width, height, 255);
+        FillRect(image, width * 4, 200, 200, 32, 32, 0, 0, 0);
+        WatchThumb before = Thumb(image, width, height);
+        FillRect(image, width * 4, 200, 200, 32, 32, 255, 255, 255);
+        FillRect(image, width * 4, 1400, 700, 32, 32, 0, 0, 0);
+        Check(!WatchDetector.Changed(before, Thumb(image, width, height)), "a moving mouse pointer is ignored");
+
+        // 箇条書きが1行増える程度(600x24)は撮る.
+        image = SolidBgra(width, height, 255);
+        FillRect(image, width * 4, 200, 500, 600, 24, 40, 40, 40);
+        Check(WatchDetector.Changed(white, Thumb(image, width, height)), "a new 600x24 line of text is detected");
 
         const int noiseWidth = 101;
         byte[] noisy = SolidBgra(noiseWidth, noiseWidth, 120);
@@ -105,31 +117,21 @@ internal static class Program
         }
         Check(!WatchDetector.Changed(original, Thumb(noisy, noiseWidth, noiseWidth)),
             "RGB noise within 10 is ignored");
-
-        for (int x = 0; x < 100; x += 20)
-            FillRect(noisy, noiseWidth * 4, x, x, 3, 1, 0, 0, 0);
-        Check(!WatchDetector.Changed(original, Thumb(noisy, noiseWidth, noiseWidth)),
-            "scattered changed pixels are ignored");
     }
 
-    static void TestE2eHighlight()
+    static void TestE2eSizes()
     {
+        // e2e(800x600の範囲. 2分の1に縮めて400x300)と同じ大きさで, 撮る・撮らないを確かめる.
         const int width = 800;
         const int height = 600;
         byte[] image = SolidBgra(width, height, 0);
         FillRect(image, width * 4, 0, 0, width, height, 0, 0, 255);
         WatchThumb blue = Thumb(image, width, height);
 
-        // e2eと同じ大きさ. 縮小ブロックの境界から1画素ずれた場合も確かめる.
-        FillRect(image, width * 4, 371, 291, 60, 20, 255, 0, 0);
-        WatchThumb highlight = Thumb(image, width, height);
-        int changedPixels = 0;
-        for (int i = 0; i < blue.Rgb.Length; i += 3)
-        {
-            if (highlight.Rgb[i] != blue.Rgb[i]) changedPixels++;
-        }
-        Check(changedPixels > 0 && changedPixels * 200 < blue.Width * blue.Height &&
-            WatchDetector.Changed(blue, highlight), "the e2e highlight is detected below the 0.5% global threshold");
+        FillRect(image, width * 4, 101, 101, 24, 24, 0, 0, 0);
+        Check(!WatchDetector.Changed(blue, Thumb(image, width, height)), "the e2e pointer-sized square is ignored");
+        FillRect(image, width * 4, 201, 281, 400, 40, 255, 0, 0);
+        Check(WatchDetector.Changed(blue, Thumb(image, width, height)), "the e2e red band is detected");
     }
 
     static void TestThresholds()
@@ -138,35 +140,18 @@ internal static class Program
         const int stride = width * 4;
         byte[] image = SolidBgra(width, width, 100);
         WatchThumb original = Thumb(image, width, width);
-        FillRect(image, stride, 10, 3, 12, 1, 123, 100, 100);
+        FillRect(image, stride, 10, 3, 30, 1, 123, 100, 100);
         Check(!WatchDetector.Changed(original, Thumb(image, width, width)), "per-channel difference of 23 is ignored");
-        FillRect(image, stride, 10, 3, 11, 1, 124, 100, 100);
-        Check(!WatchDetector.Changed(original, Thumb(image, width, width)), "11 changed pixels in one tile are ignored");
-        FillRect(image, stride, 21, 3, 1, 1, 124, 100, 100);
-        Check(WatchDetector.Changed(original, Thumb(image, width, width)),
-            "an overlapping tile detects 12 pixels whose red channel differs by exactly 24");
 
-        image = SolidBgra(width, width, 100);
-        FillRect(image, stride, 99, 85, 2, 2, 100, 76, 100);
-        FillRect(image, stride, 85, 99, 2, 2, 100, 76, 100);
-        FillRect(image, stride, 99, 99, 2, 2, 100, 76, 100);
-        Check(WatchDetector.Changed(original, Thumb(image, width, width)),
-            "a tile aligned to the right and bottom edges detects 12 changed pixels");
-
-        const int side = 80;
+        const int side = 100;
         byte[] scattered = SolidBgra(side, side, 100);
         WatchThumb plain = Thumb(scattered, side, side);
-        for (int index = 0; index < 31; index++)
-            FillRect(scattered, side * 4, (index % 8) * 10, (index / 8) * 10, 1, 1, 100, 100, 124);
-        Check(!WatchDetector.Changed(plain, Thumb(scattered, side, side)), "just under 0.5% scattered changes are ignored");
-        FillRect(scattered, side * 4, 70, 30, 1, 1, 100, 100, 124);
-        Check(WatchDetector.Changed(plain, Thumb(scattered, side, side)), "exactly 0.5% scattered changes are detected");
+        for (int index = 0; index < 19; index++)
+            FillRect(scattered, side * 4, (index % 10) * 10, (index / 10) * 10, 1, 1, 100, 100, 124);
+        Check(!WatchDetector.Changed(plain, Thumb(scattered, side, side)), "just under 0.2% changes are ignored");
+        FillRect(scattered, side * 4, 95, 55, 1, 1, 100, 100, 124);
+        Check(WatchDetector.Changed(plain, Thumb(scattered, side, side)), "exactly 0.2% changes are detected");
 
-        byte[] narrow = SolidBgra(10, 300, 100);
-        WatchThumb narrowOriginal = Thumb(narrow, 10, 300);
-        FillRect(narrow, 40, 6, 297, 4, 3, 100, 100, 124);
-        Check(WatchDetector.Changed(narrowOriginal, Thumb(narrow, 10, 300)),
-            "tiles cover an image narrower than 16 pixels");
         Check(WatchDetector.Changed(Thumb(new byte[8], 2, 1), Thumb(new byte[8], 1, 2)),
             "different dimensions count as a change even with identical pixels");
     }
@@ -310,8 +295,8 @@ internal static class Program
     static int Main()
     {
         TestDownsample();
-        TestHighlightsAndNoise();
-        TestE2eHighlight();
+        TestSmallChangesAndNoise();
+        TestE2eSizes();
         TestThresholds();
         TestState();
         TestInitialSlideBeforePageTurn();

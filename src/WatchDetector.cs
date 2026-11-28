@@ -23,10 +23,9 @@ namespace Wakudori
         private const int MaxThumbWidth = 960; // 縮小後の幅の上限.
         private const int MaxThumbHeight = 540; // 縮小後の高さの上限.
         private const int ChannelThreshold = 24; // 画素の変化とみなすRGBのうち最大の差.
-        private const int TileSize = 16; // 局所的な変化を数える正方形の一辺.
-        private const int TileStep = 8; // タイルを半分重ねるためにずらす画素数.
-        private const int TileChangedPixels = 12; // タイルの変化とみなす画素数.
-        private const int PixelsPerGlobalChange = 200; // 全体の1/200(0.5%)以上が変われば変化とみなす.
+        // 全体の1/500(0.2%)以上が変われば変化とみなす. マウスのポインタや入力のカーソル(全体の0.1%に届かない)は,
+        // 動いても撮らない. スライドのページ送りや, 箇条書きが1行増える程度の変化は拾う(H19. 2026-11-28 ユーザーの判断).
+        private const int PixelsPerGlobalChange = 500;
         private const int StableMatches = 2; // 最初の候補のあと, 同じ状態が続くのを確かめる回数.
 
         private WatchThumb reference;
@@ -82,44 +81,15 @@ namespace Wakudori
             if (a.Width != b.Width || a.Height != b.Height) return true;
 
             int pixelCount = a.Width * a.Height;
-            int globalThreshold = DivideRoundUp(pixelCount, PixelsPerGlobalChange);
+            int threshold = DivideRoundUp(pixelCount, PixelsPerGlobalChange);
             int changedCount = 0;
-            bool[] changed = null;
-            for (int pixel = 0, offset = 0; pixel < pixelCount; pixel++, offset += 3)
+            for (int offset = 0; offset < pixelCount * 3; offset += 3)
             {
                 if (Math.Abs(a.Rgb[offset] - b.Rgb[offset]) < ChannelThreshold
                     && Math.Abs(a.Rgb[offset + 1] - b.Rgb[offset + 1]) < ChannelThreshold
                     && Math.Abs(a.Rgb[offset + 2] - b.Rgb[offset + 2]) < ChannelThreshold)
                     continue;
-
-                changedCount++;
-                if (changedCount >= globalThreshold) return true;
-                if (changed == null) changed = new bool[pixelCount];
-                changed[pixel] = true;
-            }
-            if (changedCount < TileChangedPixels) return false;
-
-            // 端のタイルは右端・下端にそろえる. 画像が小さい軸では画像の幅・高さを使う.
-            int tileWidth = Math.Min(TileSize, a.Width);
-            int tileHeight = Math.Min(TileSize, a.Height);
-            int lastTileX = a.Width - tileWidth;
-            int lastTileY = a.Height - tileHeight;
-            for (int top = 0; ; top = Math.Min(top + TileStep, lastTileY))
-            {
-                for (int left = 0; ; left = Math.Min(left + TileStep, lastTileX))
-                {
-                    int tileCount = 0;
-                    for (int y = top; y < top + tileHeight; y++)
-                    {
-                        int row = y * a.Width;
-                        for (int x = left; x < left + tileWidth; x++)
-                        {
-                            if (changed[row + x] && ++tileCount >= TileChangedPixels) return true;
-                        }
-                    }
-                    if (left == lastTileX) break;
-                }
-                if (top == lastTileY) break;
+                if (++changedCount >= threshold) return true;
             }
             return false;
         }

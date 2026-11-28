@@ -400,7 +400,7 @@ try {
     Check-InvalidCaptureKey "3"
     Reset-Screens "3"
 
-    # 4. 前回の範囲を見張り, 白・青・青地に赤の3枚を撮る.
+    # 4. 前回の範囲を見張り, 白・青・青地に赤の3枚を撮る. 小さな変化では撮らない.
     $watchKeySent = [ref]$false
     $watchBackground = [System.Windows.Forms.Form]::new()
     try {
@@ -433,12 +433,21 @@ try {
             Check "4 青に変えると002.pngができる" (Wait-Until { Test-Path -LiteralPath $second -PathType Leaf } 10000) -Required
 
             $third = Join-Path $watchFolder.Value '003.png'
-            Check "4 長方形を出す前は003.pngがない" (-not (Test-Path -LiteralPath $third)) -Required
+            # ポインタくらいの小さな変化(800x600のうち24x24. 全体の0.2%に届かない)では撮らない.
+            $pointer = [System.Windows.Forms.Panel]::new()
+            $pointer.BackColor = [System.Drawing.Color]::Black
+            $pointer.Size = [System.Drawing.Size]::new(24, 24)
+            $pointer.Location = [System.Drawing.Point]::new(
+                ([int]($watchBackground.ClientSize.Width / 2 - 300)),
+                ([int]($watchBackground.ClientSize.Height / 2 - 200)))
+            $watchBackground.Controls.Add($pointer)
+            $watchBackground.Refresh()
+            [System.Windows.Forms.Application]::DoEvents()
+            Check "4 ポインタくらいの小さな変化では5秒待っても003.pngができない" (-not (Wait-Until { Test-Path -LiteralPath $third } 5000)) -Required
             $panel = [System.Windows.Forms.Panel]::new()
             $panel.BackColor = [System.Drawing.Color]::Red
-            # 800x600のうち60x20は0.25%. 2分の1に縮小すると30x10で,
-            # 全体のしきい値0.5%に届かず, 16x16タイルの12画素以上で検出される.
-            $panel.Size = [System.Drawing.Size]::new(60, 20)
+            # 800x600のうち400x40は3.3%. 全体のしきい値0.2%を超えるので撮る.
+            $panel.Size = [System.Drawing.Size]::new(400, 40)
             $panel.Location = [System.Drawing.Point]::new(
                 ([int](($watchBackground.ClientSize.Width - $panel.Width) / 2)),
                 ([int](($watchBackground.ClientSize.Height - $panel.Height) / 2)))
