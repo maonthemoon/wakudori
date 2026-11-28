@@ -68,14 +68,16 @@ internal static class Program
             { youngNonFixed.FullPath, new CaptureFileState(true, size, write) },
         };
 
+        Func<string, int, CaptureFolderState?> unexpectedFolderRead = (path, _) => throw new InvalidOperationException(path);
         List<string> checkedPaths = new List<string>();
         CleanupResult result = Cleanup.Select(records, now, days, true, path =>
         {
             checkedPaths.Add(path);
             return states[path];
-        }, path => path != nonFixed.FullPath && path != youngNonFixed.FullPath);
+        }, unexpectedFolderRead, path => path != nonFixed.FullPath && path != youngNonFixed.FullPath);
         CheckRecords("recycle eligible fixed-drive files at 30 days, allowing up to 2 seconds of timestamp difference", result.ToRecycle,
             exact, laterTwoSeconds, earlierTwoSeconds);
+        Eq("count individually recorded images", 3, result.ImagesToRecycle);
         CheckRecords("keep matching files and unknown states one second before cutoff", result.ToKeep,
             tooYoung, youngUnreadable, youngNonFixed);
         CheckRecords("forget missing and changed files, and expired records with non-fixed drives or unknown states", result.ToForget,
@@ -83,7 +85,7 @@ internal static class Program
         Eq("check only logged paths", true, checkedPaths.SequenceEqual(records.Select(record => record.FullPath)));
 
         Func<string, bool> unexpectedDriveCheck = path => throw new InvalidOperationException(path);
-        result = Cleanup.Select(records, now, days, false, path => states[path], unexpectedDriveCheck);
+        result = Cleanup.Select(records, now, days, false, path => states[path], unexpectedFolderRead, unexpectedDriveCheck);
         CheckRecords("with autoDelete off, recycle no files", result.ToRecycle);
         CheckRecords("with autoDelete off, keep unexpired matching files and unknown states", result.ToKeep,
             tooYoung, youngUnreadable, youngNonFixed);
@@ -91,19 +93,107 @@ internal static class Program
             exact, missing, differentSize, youngDifferentSize, laterTwoSeconds, earlierTwoSeconds,
             laterThreeSeconds, earlierThreeSeconds, unreadable, nonFixed);
 
-        result = Cleanup.Select(new[] { tooYoung }, now, days - 1, false, path => states[path], unexpectedDriveCheck);
+        result = Cleanup.Select(new[] { tooYoung }, now, days - 1, false, path => states[path], unexpectedFolderRead, unexpectedDriveCheck);
         CheckRecords("with autoDelete off, use the configured retention days", result.ToForget, tooYoung);
 
         result = Cleanup.Select(new CaptureRecord[0], now, days, true,
-            path => throw new InvalidOperationException(path), unexpectedDriveCheck);
+            path => throw new InvalidOperationException(path), unexpectedFolderRead, unexpectedDriveCheck);
         CheckRecords("empty log has no recycle candidates", result.ToRecycle);
         CheckRecords("empty log has no records to keep", result.ToKeep);
         CheckRecords("empty log has no records to forget", result.ToForget);
 
         CheckFileStates();
+        CheckFolderCleanup(now, days);
 
         Console.WriteLine(fail == 0 ? "ALL PASS" : fail + " FAILED");
         return fail == 0 ? 0 : 1;
+    }
+
+    private static void CheckFolderCleanup(DateTime now, int days)
+    {
+        DirectoryInfo root = Directory.CreateTempSubdirectory("wakudori-watch-cleanup-");
+        try
+        {
+            DateTime cutoff = now.AddDays(-days);
+            CaptureRecord shots = new CaptureRecord(cutoff, 1000, root.CreateSubdirectory("shots").FullName);
+            CaptureRecord empty = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("empty").FullName);
+            CaptureRecord otherFile = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("other-file").FullName);
+            CaptureRecord subfolder = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("subfolder").FullName);
+            CaptureRecord shortNumber = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("short-number").FullName);
+            CaptureRecord paddedNumber = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("padded-number").FullName);
+            CaptureRecord extraNumber = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("extra-number").FullName);
+            CaptureRecord zeroNumber = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("zero-number").FullName);
+            CaptureRecord overflowNumber = new CaptureRecord(cutoff, int.MaxValue, root.CreateSubdirectory("overflow-number").FullName);
+            CaptureRecord young = new CaptureRecord(cutoff.AddSeconds(1), 1, root.CreateSubdirectory("young").FullName);
+            CaptureRecord missing = new CaptureRecord(cutoff, 1, Path.Combine(root.FullName, "missing"));
+            CaptureRecord unreadable = new CaptureRecord(cutoff, 1, Path.Combine(root.FullName, "unreadable"));
+            CaptureRecord nonFixed = new CaptureRecord(cutoff, 1, root.CreateSubdirectory("non-fixed").FullName);
+            File.WriteAllText(Path.Combine(shots.FullPath, "001.png"), "");
+            File.WriteAllText(Path.Combine(shots.FullPath, "1000.png"), "");
+            File.WriteAllText(Path.Combine(otherFile.FullPath, "notes.txt"), "");
+            Directory.CreateDirectory(Path.Combine(subfolder.FullPath, "001.png"));
+            File.WriteAllText(Path.Combine(shortNumber.FullPath, "01.png"), "");
+            File.WriteAllText(Path.Combine(paddedNumber.FullPath, "001.png"), "");
+            File.WriteAllText(Path.Combine(paddedNumber.FullPath, "0001.png"), "");
+            File.WriteAllText(Path.Combine(extraNumber.FullPath, "001.png"), "");
+            File.WriteAllText(Path.Combine(extraNumber.FullPath, "002.png"), "");
+            File.WriteAllText(Path.Combine(zeroNumber.FullPath, "000.png"), "");
+            File.WriteAllText(Path.Combine(overflowNumber.FullPath, "2147483648.png"), "");
+
+            CaptureRecord[] records = {
+                shots, empty, otherFile, subfolder, shortNumber, paddedNumber, extraNumber, zeroNumber, overflowNumber,
+                young, missing, unreadable, nonFixed
+            };
+            Func<string, CaptureFileState?> unexpectedFileRead = path => throw new InvalidOperationException(path);
+            Func<string, int, CaptureFolderState?> readFolder = (path, recordedCount) =>
+            {
+                if (path == young.FullPath) throw new InvalidOperationException(path);
+                return CaptureRecycler.ReadFolderState(path, recordedCount, _ => path != unreadable.FullPath);
+            };
+            CleanupResult result = Cleanup.Select(records, now, days, true, unexpectedFileRead, readFolder,
+                path => path != nonFixed.FullPath);
+            CheckRecords("recycle expired folders with gaps in numbering and empty folders", result.ToRecycle, shots, empty);
+            Eq("count images currently in eligible folders", 2, result.ImagesToRecycle);
+            CheckRecords("keep young folders and folders with unavailable roots", result.ToKeep, young, unreadable);
+            CheckRecords("forget expired folders with extra entries, missing folders and non-fixed folders", result.ToForget,
+                otherFile, subfolder, shortNumber, paddedNumber, extraNumber, zeroNumber, overflowNumber, missing, nonFixed);
+
+            result = Cleanup.Select(records, now, days, false, unexpectedFileRead,
+                (path, _) => throw new InvalidOperationException(path), path => throw new InvalidOperationException(path));
+            CheckRecords("with autoDelete off, recycle no folders", result.ToRecycle);
+            CheckRecords("with autoDelete off, keep young folders", result.ToKeep, young);
+            CheckRecords("with autoDelete off, forget expired folders without checking their state", result.ToForget,
+                shots, empty, otherFile, subfolder, shortNumber, paddedNumber, extraNumber, zeroNumber, overflowNumber,
+                missing, unreadable, nonFixed);
+
+            File.Delete(Path.Combine(shots.FullPath, "1000.png"));
+            int movedImages;
+            Eq("pass folder path to recycler", CaptureMoveResult.Moved, CaptureRecycler.TryMove(shots, _ => true, path =>
+            {
+                Eq("recycler receives folder path", shots.FullPath, path);
+                return true;
+            }, out movedImages));
+            Eq("report images found just before recycling", 1, movedImages);
+            Eq("keep the folder record if recycling fails", CaptureMoveResult.Keep,
+                CaptureRecycler.TryMove(shots, _ => true, _ => false, out movedImages));
+            Eq("report no images if recycling fails", 0, movedImages);
+
+            Func<string, bool> unexpectedRecycle = path => throw new InvalidOperationException(path);
+            Eq("recheck the drive before moving the folder", CaptureMoveResult.Forget,
+                CaptureRecycler.TryMove(shots, _ => false, unexpectedRecycle, out movedImages));
+            string latePng = Path.Combine(shots.FullPath, "1001.png");
+            File.WriteAllText(latePng, "");
+            Eq("recheck the recorded number range before moving the folder", CaptureMoveResult.Forget,
+                CaptureRecycler.TryMove(shots, _ => true, unexpectedRecycle, out movedImages));
+            File.Delete(latePng);
+            File.WriteAllText(Path.Combine(shots.FullPath, "late.txt"), "");
+            Eq("recheck folder contents before moving and forget if they changed", CaptureMoveResult.Forget,
+                CaptureRecycler.TryMove(shots, _ => true, unexpectedRecycle, out movedImages));
+        }
+        finally
+        {
+            root.Delete(true);
+        }
     }
 
     private static void CheckFileStates()

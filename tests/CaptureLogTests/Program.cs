@@ -24,6 +24,79 @@ internal static class Program
         Eq(label + " size", expected.SizeBytes, actual.SizeBytes);
         Eq(label + " write ticks", expected.LastWriteUtcTicks, actual.LastWriteUtcTicks);
         Eq(label + " path", expected.FullPath, actual.FullPath);
+        Eq(label + " is folder", expected.IsFolder, actual.IsFolder);
+        Eq(label + " image count", expected.ImageCount, actual.ImageCount);
+    }
+
+    static void CheckFolderRecords(string dir, CaptureRecord image, string imageLine, Encoding utf8)
+    {
+        string log = Path.Combine(dir, "folder.log");
+        string folder = Path.Combine(dir, "見張り_20261120_090507");
+        DateTime endedAt = image.CapturedAt.AddMinutes(10);
+        const string stamp = "2026-11-20T09:15:07";
+        string folderLine = stamp + "\tfolder\t12\t" + folder + Environment.NewLine;
+        CaptureLog.Append(log, image);
+        CaptureLog.AppendFolder(log, endedAt, 12, folder);
+        Eq("write one folder row with end time and count", imageLine + folderLine, File.ReadAllText(log, utf8));
+
+        File.AppendAllLines(log, new[] {
+            "timestamp\tfolder\t12\t" + folder,
+            stamp + "\tfolder\t-1\t" + folder,
+            stamp + "\tfolder\t2147483648\t" + folder,
+            stamp + "\tfolder\tmany\t" + folder,
+            stamp + "\tfolder\t12",
+            stamp + "\tfolder\t12\t" + folder + "\textra",
+            stamp + "\tfolder\t12\t",
+            stamp + "\tfolder\t12\trelative",
+            stamp + "\tfolder\t12\tC:relative",
+            stamp + "\tfolder\t12\t\\relative",
+            stamp + "\tfolder\t12\t" + image.FullPath,
+            stamp + "\tfolder\t12\t" + Path.Combine(dir, "folder.PNG") + Path.DirectorySeparatorChar,
+            stamp + "\tFolder\t12\t" + folder,
+        }, utf8);
+
+        List<CaptureRecord> records = CaptureLog.Read(log);
+        Eq("skip malformed folder rows and read mixed records", 2, records.Count);
+        if (records.Count != 2) return;
+        CheckRecord("mixed log image", image, records[0]);
+        Eq("mixed log folder flag", true, records[1].IsFolder);
+        Eq("mixed log folder count", 12, records[1].ImageCount);
+        Eq("mixed log folder end time", endedAt, records[1].CapturedAt);
+        Eq("mixed log folder time kind", DateTimeKind.Local, records[1].CapturedAt.Kind);
+        Eq("mixed log folder path", folder, records[1].FullPath);
+
+        CaptureLog.Rewrite(log, records);
+        Eq("rewrite preserves both row formats", imageLine + folderLine, File.ReadAllText(log, utf8));
+        CaptureLog.Remove(log, new[] { records[1] });
+        Eq("remove folder preserves image row", imageLine, File.ReadAllText(log, utf8));
+
+        bool rejected = false;
+        try
+        {
+            CaptureLog.AppendFolder(log, endedAt, 12, image.FullPath);
+        }
+        catch (ArgumentException)
+        {
+            rejected = true;
+        }
+        Eq("reject PNG path on folder append", true, rejected);
+        Eq("rejected folder append leaves log intact", imageLine, File.ReadAllText(log, utf8));
+    }
+
+    static void CheckInterruptedFolderAppend(string dir, DateTime endedAt, Encoding utf8)
+    {
+        string log = Path.Combine(dir, "interrupted-folder.log");
+        string folder = Path.Combine(dir, "見張り_20261120_090507_2");
+        string[] incompletePaths = { Path.Combine(dir, "見張り_2026112"), Path.Combine(dir, "見張"), dir };
+        foreach (string path in incompletePaths)
+        {
+            File.WriteAllText(log, "2026-11-20T09:15:07\tfolder\t1\t" + path, utf8);
+            Eq("skip interrupted folder row: " + path, 0, CaptureLog.Read(log).Count);
+            CaptureLog.AppendFolder(log, endedAt, 1, folder);
+            List<CaptureRecord> records = CaptureLog.Read(log);
+            Eq("skip interrupted folder row after the next append: " + path, 1, records.Count);
+            if (records.Count == 1) Eq("read folder name with numeric suffix", folder, records[0].FullPath);
+        }
     }
 
     static int Main()
@@ -112,6 +185,9 @@ internal static class Program
                 () => { foreach (CaptureRecord record in newRecords) CaptureLog.Append(concurrentLog, record); });
             Eq("concurrent removal preserves every appended record", true,
                 CaptureLog.Read(concurrentLog).Select(record => record.FullPath).SequenceEqual(newRecords.Select(record => record.FullPath)));
+
+            CheckFolderRecords(dir, first, firstLine, utf8);
+            CheckInterruptedFolderAppend(dir, first.CapturedAt, utf8);
         }
         finally
         {

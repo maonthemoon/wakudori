@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Wakudori
 {
@@ -12,6 +13,8 @@ namespace Wakudori
         public readonly long SizeBytes;
         public readonly long LastWriteUtcTicks;
         public readonly string FullPath;
+        public readonly bool IsFolder;
+        public readonly int ImageCount;
 
         public CaptureRecord(DateTime capturedAt, long sizeBytes, long lastWriteUtcTicks, string fullPath)
         {
@@ -19,10 +22,19 @@ namespace Wakudori
             SizeBytes = sizeBytes;
             LastWriteUtcTicks = lastWriteUtcTicks;
             FullPath = fullPath;
+            ImageCount = 1;
+        }
+
+        public CaptureRecord(DateTime endedAt, int count, string folder)
+        {
+            CapturedAt = endedAt;
+            FullPath = folder;
+            IsFolder = true;
+            ImageCount = count;
         }
     }
 
-    // 保存した画像を1枚ずつタブ区切りで記録する(UIに依存しない)
+    // 保存した画像や見張りのフォルダーをタブ区切りで記録する(UIに依存しない)
     internal static class CaptureLog
     {
         private const string TimeFormat = "yyyy-MM-dd'T'HH:mm:ss";
@@ -30,12 +42,18 @@ namespace Wakudori
         private static readonly Encoding Utf8 = new UTF8Encoding(false);
         private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
         private static readonly char[] FieldSeparators = { '\t', '\r', '\n' };
+        private static readonly Regex WatchFolderName = new Regex(@"\A見張り_[0-9]{8}_[0-9]{6}(?:_[0-9]+)?\z");
         // 整理の読み直しと書き直しの間に撮影の追記が入ると, その行が失われる
         private static readonly object LogLock = new object();
 
         public static string DefaultPath
         {
             get { return Path.Combine(AppSettings.ConfigDir, "captures.log"); }
+        }
+
+        public static void AppendFolder(string logPath, DateTime endedAt, int count, string folder)
+        {
+            Append(logPath, new CaptureRecord(endedAt, count, folder));
         }
 
         public static void Append(string logPath, CaptureRecord record)
@@ -105,8 +123,17 @@ namespace Wakudori
 
         private static string Format(CaptureRecord record)
         {
-            if (!IsFullPngPath(record.FullPath)) throw new ArgumentException("PNG画像のフルパスを記録できません.", "record");
-            return record.CapturedAt.ToString(TimeFormat, Culture) + "\t" + record.SizeBytes.ToString(Culture)
+            string time = record.CapturedAt.ToString(TimeFormat, Culture);
+            if (record.IsFolder)
+            {
+                if (record.ImageCount < 0 || !IsFullFolderPath(record.FullPath))
+                    throw new ArgumentException("見張りのフォルダーのフルパスと枚数を記録できません.", "record");
+                return time + "\tfolder\t" + record.ImageCount.ToString(Culture) + "\t" + record.FullPath;
+            }
+
+            if (!IsFullPath(record.FullPath) || !HasPngExtension(record.FullPath))
+                throw new ArgumentException("PNG画像のフルパスを記録できません.", "record");
+            return time + "\t" + record.SizeBytes.ToString(Culture)
                 + "\t" + record.LastWriteUtcTicks.ToString(Culture) + "\t" + record.FullPath;
         }
 
@@ -115,23 +142,43 @@ namespace Wakudori
             record = null;
             string[] fields = line.Split('\t');
             DateTime time;
+            if (fields.Length != 4
+                || !DateTime.TryParseExact(fields[0], TimeFormat, Culture, DateTimeStyles.AssumeLocal, out time)) return false;
+
+            if (fields[1] == "folder")
+            {
+                int count;
+                if (!int.TryParse(fields[2], NumberStyles.None, Culture, out count)
+                    || !IsFullFolderPath(fields[3])) return false;
+                record = new CaptureRecord(time, count, fields[3]);
+                return true;
+            }
+
             long size;
             long ticks;
-            if (fields.Length != 4
-                || !DateTime.TryParseExact(fields[0], TimeFormat, Culture, DateTimeStyles.AssumeLocal, out time)
-                || !long.TryParse(fields[1], NumberStyles.None, Culture, out size)
+            if (!long.TryParse(fields[1], NumberStyles.None, Culture, out size)
                 || !long.TryParse(fields[2], NumberStyles.None, Culture, out ticks)
                 || ticks > DateTime.MaxValue.Ticks
-                || !IsFullPngPath(fields[3])) return false;
+                || !IsFullPath(fields[3]) || !HasPngExtension(fields[3])) return false;
 
             record = new CaptureRecord(time, size, ticks, fields[3]);
             return true;
         }
 
-        private static bool IsFullPngPath(string path)
+        private static bool IsFullFolderPath(string path)
         {
-            if (path == null || !path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-                || path.IndexOfAny(FieldSeparators) >= 0
+            // 追記が途中で止まったときに, 見張りの名前に合わないパスを読み飛ばす
+            return IsFullPath(path) && WatchFolderName.IsMatch(Path.GetFileName(path));
+        }
+
+        private static bool HasPngExtension(string path)
+        {
+            return path.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFullPath(string path)
+        {
+            if (path == null || path.IndexOfAny(FieldSeparators) >= 0
                 || path.IndexOfAny(InvalidPathChars) >= 0 || !Path.IsPathRooted(path)) return false;
             if (Path.DirectorySeparatorChar != '\\') return true;
             // Windowsではドライブのルート(C:\)かUNCの先頭(\\)が必要

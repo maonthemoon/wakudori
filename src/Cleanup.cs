@@ -17,11 +17,24 @@ namespace Wakudori
         }
     }
 
+    internal struct CaptureFolderState
+    {
+        public readonly bool HasOnlyCaptures;
+        public readonly int ImageCount;
+
+        public CaptureFolderState(int imageCount)
+        {
+            HasOnlyCaptures = true;
+            ImageCount = imageCount;
+        }
+    }
+
     internal sealed class CleanupResult
     {
         public readonly List<CaptureRecord> ToRecycle = new List<CaptureRecord>();
         public readonly List<CaptureRecord> ToKeep = new List<CaptureRecord>();
         public readonly List<CaptureRecord> ToForget = new List<CaptureRecord>();
+        public int ImagesToRecycle;
     }
 
     internal static class Cleanup
@@ -33,7 +46,8 @@ namespace Wakudori
         }
 
         public static CleanupResult Select(IEnumerable<CaptureRecord> records, DateTime now, int days, bool autoDelete,
-            Func<string, CaptureFileState?> readState, Func<string, bool> isOnFixedDrive)
+            Func<string, CaptureFileState?> readState, Func<string, int, CaptureFolderState?> readFolderState,
+            Func<string, bool> isOnFixedDrive)
         {
             CleanupResult result = new CleanupResult();
             DateTime nowUtc = now.ToUniversalTime();
@@ -48,10 +62,33 @@ namespace Wakudori
                     continue;
                 }
 
+                if (record.IsFolder)
+                {
+                    if (!expired)
+                    {
+                        result.ToKeep.Add(record);
+                        continue;
+                    }
+
+                    CaptureFolderState? folderState = readFolderState(record.FullPath, record.ImageCount);
+                    if (!folderState.HasValue) result.ToKeep.Add(record);
+                    else if (folderState.Value.HasOnlyCaptures && isOnFixedDrive(record.FullPath))
+                    {
+                        result.ToRecycle.Add(record);
+                        result.ImagesToRecycle += folderState.Value.ImageCount;
+                    }
+                    else result.ToForget.Add(record);
+                    continue;
+                }
+
                 CaptureFileState? state = readState(record.FullPath);
                 if (state.HasValue && !Matches(record, state.Value)) result.ToForget.Add(record);
                 else if (!expired) result.ToKeep.Add(record);
-                else if (state.HasValue && isOnFixedDrive(record.FullPath)) result.ToRecycle.Add(record);
+                else if (state.HasValue && isOnFixedDrive(record.FullPath))
+                {
+                    result.ToRecycle.Add(record);
+                    result.ImagesToRecycle++;
+                }
                 else result.ToForget.Add(record);
             }
             return result;

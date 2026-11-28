@@ -204,13 +204,13 @@ namespace Wakudori
 
         internal static int CountCleanupCandidates(int days)
         {
-            return SelectCleanup(CaptureLog.Read(CaptureLog.DefaultPath), days, true).ToRecycle.Count;
+            return SelectCleanup(CaptureLog.Read(CaptureLog.DefaultPath), days, true).ImagesToRecycle;
         }
 
         private static CleanupResult SelectCleanup(List<CaptureRecord> records, int days, bool autoDelete)
         {
             return Cleanup.Select(records, DateTime.UtcNow, days, autoDelete,
-                CaptureRecycler.ReadState, CaptureRecycler.IsOnFixedDrive);
+                CaptureRecycler.ReadState, CaptureRecycler.ReadFolderState, CaptureRecycler.IsOnFixedDrive);
         }
 
         private async void StartCleanup(int? confirmedDays = null)
@@ -284,13 +284,10 @@ namespace Wakudori
                 foreach (CaptureRecord record in result.ToRecycle)
                 {
                     if (exiting || token.IsCancellationRequested) break;
-                    // 選別後にドライブの接続が変わることがあるので, 移す前にもう一度確かめる
-                    if (!CaptureRecycler.IsOnFixedDrive(record.FullPath)) result.ToForget.Add(record);
-                    else if (CaptureRecycler.TryMove(record))
-                    {
-                        result.ToForget.Add(record);
-                        moved++;
-                    }
+                    int movedImages;
+                    CaptureMoveResult moveResult = CaptureRecycler.TryMove(record, out movedImages);
+                    if (moveResult != CaptureMoveResult.Keep) result.ToForget.Add(record);
+                    moved += movedImages;
                 }
                 CaptureLog.Remove(logPath, result.ToForget);
             }
