@@ -1,0 +1,226 @@
+using System;
+using Wakudori;
+
+internal static class Program
+{
+    static int fail;
+
+    static void Check(bool ok, string name)
+    {
+        Console.WriteLine((ok ? "PASS " : "FAIL ") + name);
+        if (!ok) fail++;
+    }
+
+    static void FillRect(byte[] bgra, int stride, int left, int top, int width, int height,
+        byte red, byte green, byte blue)
+    {
+        for (int y = top; y < top + height; y++)
+        {
+            for (int x = left; x < left + width; x++)
+            {
+                int i = y * stride + x * 4;
+                bgra[i] = blue;
+                bgra[i + 1] = green;
+                bgra[i + 2] = red;
+                bgra[i + 3] = 255;
+            }
+        }
+    }
+
+    static byte[] SolidBgra(int width, int height, byte shade)
+    {
+        byte[] bgra = new byte[width * height * 4];
+        FillRect(bgra, width * 4, 0, 0, width, height, shade, shade, shade);
+        return bgra;
+    }
+
+    static WatchThumb Thumb(byte[] bgra, int width, int height)
+    {
+        return WatchDetector.Downsample(bgra, width, height, width * 4);
+    }
+
+    static WatchThumb SolidThumb(byte shade)
+    {
+        return Thumb(SolidBgra(40, 40, shade), 40, 40);
+    }
+
+    static bool HasRgb(WatchThumb thumb, int x, int y, int red, int green, int blue)
+    {
+        int offset = (y * thumb.Width + x) * 3;
+        return thumb.Rgb[offset] == red && thumb.Rgb[offset + 1] == green && thumb.Rgb[offset + 2] == blue;
+    }
+
+    static void TestDownsample()
+    {
+        WatchThumb narrow = Thumb(SolidBgra(1000, 500, 120), 1000, 500);
+        Check(narrow.Width == 500 && narrow.Height == 250, "1000x500 uses an integer scale of 2");
+
+        byte[] small = SolidBgra(3, 2, 0);
+        FillRect(small, 12, 2, 1, 1, 1, 11, 22, 33);
+        WatchThumb sameSize = Thumb(small, 3, 2);
+        Check(sameSize.Width == 3 && sameSize.Height == 2 && sameSize.Rgb.Length == 18
+            && HasRgb(sameSize, 2, 1, 11, 22, 33), "small images keep dimensions and RGB channel order");
+
+        const int stride = 28;
+        byte[] odd = new byte[stride * 541];
+        FillRect(odd, stride, 0, 0, 1, 1, 9, 20, 4);
+        FillRect(odd, stride, 1, 0, 1, 1, 0, 12, 8);
+        FillRect(odd, stride, 0, 1, 1, 1, 2, 4, 20);
+        FillRect(odd, stride, 1, 1, 1, 1, 0, 0, 0);
+        odd[20] = 255;
+        odd[21] = 255;
+        odd[22] = 255;
+        FillRect(odd, stride, 4, 0, 1, 1, 80, 60, 40);
+        FillRect(odd, stride, 0, 540, 1, 1, 30, 50, 70);
+        FillRect(odd, stride, 4, 540, 1, 1, 11, 22, 33);
+        WatchThumb reduced = WatchDetector.Downsample(odd, 5, 541, stride);
+        Check(reduced.Width == 3 && reduced.Height == 271, "height sets the scale and odd edges are retained");
+        Check(HasRgb(reduced, 0, 0, 2, 9, 8), "all four pixels contribute to the integer RGB average");
+        Check(HasRgb(reduced, 2, 0, 40, 30, 20), "right edge averages two pixels and skips row padding");
+        Check(HasRgb(reduced, 0, 270, 15, 25, 35), "bottom edge averages two pixels");
+        Check(HasRgb(reduced, 2, 270, 11, 22, 33), "bottom right edge keeps its single pixel");
+    }
+
+    static void TestHighlightsAndNoise()
+    {
+        const int width = 1920;
+        const int height = 1080;
+        byte[] image = SolidBgra(width, height, 255);
+        WatchThumb white = Thumb(image, width, height);
+        Check(white.Width == 960 && white.Height == 540, "1920x1080 reduces to 960x540");
+        FillRect(image, width * 4, 101, 101, 300, 4, 255, 0, 0);
+        Check(WatchDetector.Changed(white, Thumb(image, width, height)), "a thin 300x4 red line is detected");
+        FillRect(image, width * 4, 101, 101, 300, 4, 255, 255, 255);
+        FillRect(image, width * 4, 141, 201, 200, 20, 30, 120, 180);
+        Check(WatchDetector.Changed(white, Thumb(image, width, height)), "a 200x20 highlight is detected");
+
+        const int noiseWidth = 101;
+        byte[] noisy = SolidBgra(noiseWidth, noiseWidth, 120);
+        WatchThumb original = Thumb(noisy, noiseWidth, noiseWidth);
+        Random noise = new Random(1);
+        for (int i = 0; i < noisy.Length; i += 4)
+        {
+            for (int channel = 0; channel < 3; channel++)
+                noisy[i + channel] = (byte)(120 + noise.Next(-10, 11));
+        }
+        Check(!WatchDetector.Changed(original, Thumb(noisy, noiseWidth, noiseWidth)),
+            "RGB noise within 10 is ignored");
+
+        for (int x = 0; x < 100; x += 20)
+            FillRect(noisy, noiseWidth * 4, x, x, 3, 1, 0, 0, 0);
+        Check(!WatchDetector.Changed(original, Thumb(noisy, noiseWidth, noiseWidth)),
+            "scattered changed pixels are ignored");
+    }
+
+    static void TestThresholds()
+    {
+        const int width = 101;
+        const int stride = width * 4;
+        byte[] image = SolidBgra(width, width, 100);
+        WatchThumb original = Thumb(image, width, width);
+        FillRect(image, stride, 10, 3, 12, 1, 123, 100, 100);
+        Check(!WatchDetector.Changed(original, Thumb(image, width, width)), "per-channel difference of 23 is ignored");
+        FillRect(image, stride, 10, 3, 11, 1, 124, 100, 100);
+        Check(!WatchDetector.Changed(original, Thumb(image, width, width)), "11 changed pixels in one tile are ignored");
+        FillRect(image, stride, 21, 3, 1, 1, 124, 100, 100);
+        Check(WatchDetector.Changed(original, Thumb(image, width, width)),
+            "an overlapping tile detects 12 pixels whose red channel differs by exactly 24");
+
+        image = SolidBgra(width, width, 100);
+        FillRect(image, stride, 99, 85, 2, 2, 100, 76, 100);
+        FillRect(image, stride, 85, 99, 2, 2, 100, 76, 100);
+        FillRect(image, stride, 99, 99, 2, 2, 100, 76, 100);
+        Check(WatchDetector.Changed(original, Thumb(image, width, width)),
+            "a tile aligned to the right and bottom edges detects 12 changed pixels");
+
+        const int side = 80;
+        byte[] scattered = SolidBgra(side, side, 100);
+        WatchThumb plain = Thumb(scattered, side, side);
+        for (int index = 0; index < 31; index++)
+            FillRect(scattered, side * 4, (index % 8) * 10, (index / 8) * 10, 1, 1, 100, 100, 124);
+        Check(!WatchDetector.Changed(plain, Thumb(scattered, side, side)), "just under 0.5% scattered changes are ignored");
+        FillRect(scattered, side * 4, 70, 30, 1, 1, 100, 100, 124);
+        Check(WatchDetector.Changed(plain, Thumb(scattered, side, side)), "exactly 0.5% scattered changes are detected");
+
+        byte[] narrow = SolidBgra(10, 300, 100);
+        WatchThumb narrowOriginal = Thumb(narrow, 10, 300);
+        FillRect(narrow, 40, 6, 297, 4, 3, 100, 100, 124);
+        Check(WatchDetector.Changed(narrowOriginal, Thumb(narrow, 10, 300)),
+            "tiles cover an image narrower than 16 pixels");
+        Check(WatchDetector.Changed(Thumb(new byte[8], 2, 1), Thumb(new byte[8], 1, 2)),
+            "different dimensions count as a change even with identical pixels");
+    }
+
+    static void TestState()
+    {
+        WatchDetector detector = new WatchDetector();
+        WatchThumb a = SolidThumb(80);
+        WatchThumb b = SolidThumb(140);
+        WatchThumb c = SolidThumb(210);
+
+        Check(detector.Feed(a) == WatchResult.None, "first frame starts a candidate");
+        Check(detector.Feed(a) == WatchResult.None, "first match does not capture");
+        Check(detector.Feed(a) == WatchResult.Capture, "first image is captured on feed 3");
+        Check(detector.Feed(a) == WatchResult.None && detector.Feed(a) == WatchResult.None
+            && detector.Feed(a) == WatchResult.None, "unchanged frames do not cause another capture");
+
+        Check(detector.Feed(b) == WatchResult.None && detector.Feed(b) == WatchResult.None
+            && detector.Feed(b) == WatchResult.Capture, "a changed image is captured on its third feed");
+
+        Check(detector.Feed(c) == WatchResult.None && detector.Feed(c) == WatchResult.None
+            && detector.Feed(b) == WatchResult.None, "returning to the reference discards a brief change");
+        Check(detector.Feed(c) == WatchResult.None && detector.Feed(c) == WatchResult.None,
+            "a discarded candidate starts counting again");
+        Check(detector.Feed(a) == WatchResult.None && detector.Feed(a) == WatchResult.None
+            && detector.Feed(a) == WatchResult.Capture, "a new candidate waits for two matches and can revisit an old image");
+    }
+
+    static void TestBlackAndGradualChanges()
+    {
+        WatchThumb black = SolidThumb(0);
+        byte[] darkImage = SolidBgra(40, 40, 0);
+        FillRect(darkImage, 160, 39, 39, 1, 1, 0, 0, 1);
+        WatchThumb nearBlack = Thumb(darkImage, 40, 40);
+        Check(WatchDetector.IsBlack(black) && !WatchDetector.IsBlack(nearBlack),
+            "black requires all RGB channels to be zero regardless of alpha");
+        WatchDetector detector = new WatchDetector();
+        Check(detector.Feed(black) == WatchResult.Black && detector.Feed(black) == WatchResult.Black
+            && detector.Feed(black) == WatchResult.Black, "initial black frames never capture");
+        Check(detector.Feed(nearBlack) == WatchResult.None && detector.Feed(nearBlack) == WatchResult.None
+            && detector.Feed(nearBlack) == WatchResult.Capture, "a nonzero dark image can be captured");
+        WatchThumb bright = SolidThumb(100);
+        Check(detector.Feed(bright) == WatchResult.None && detector.Feed(bright) == WatchResult.None
+            && detector.Feed(black) == WatchResult.Black, "black discards a pending candidate");
+        Check(detector.Feed(bright) == WatchResult.None && detector.Feed(bright) == WatchResult.None,
+            "a candidate discarded by black needs two new matches");
+        Check(detector.Feed(black) == WatchResult.Black, "black can reset a second candidate");
+        Check(detector.Feed(nearBlack) == WatchResult.None && detector.Feed(nearBlack) == WatchResult.None
+            && detector.Feed(nearBlack) == WatchResult.None, "black preserves the captured reference");
+        Check(detector.Feed(bright) == WatchResult.None && detector.Feed(bright) == WatchResult.None
+            && detector.Feed(bright) == WatchResult.Capture, "capture resumes after black");
+
+        Check(detector.Feed(SolidThumb(108)) == WatchResult.None && detector.Feed(SolidThumb(116)) == WatchResult.None
+            && detector.Feed(SolidThumb(124)) == WatchResult.None && detector.Feed(SolidThumb(130)) == WatchResult.None
+            && detector.Feed(SolidThumb(137)) == WatchResult.Capture, "gradual changes accumulate against the captured frame");
+        WatchThumb afterCapture = SolidThumb(150);
+        Check(detector.Feed(afterCapture) == WatchResult.None && detector.Feed(afterCapture) == WatchResult.None
+            && detector.Feed(afterCapture) == WatchResult.None, "the reference is the frame returned as Capture");
+
+        detector = new WatchDetector();
+        WatchThumb settled = SolidThumb(64);
+        Check(detector.Feed(SolidThumb(40)) == WatchResult.None && detector.Feed(SolidThumb(52)) == WatchResult.None
+            && detector.Feed(settled) == WatchResult.None && detector.Feed(settled) == WatchResult.None
+            && detector.Feed(settled) == WatchResult.Capture, "stability is measured against the first frame of the candidate");
+    }
+
+    static int Main()
+    {
+        TestDownsample();
+        TestHighlightsAndNoise();
+        TestThresholds();
+        TestState();
+        TestBlackAndGradualChanges();
+        Console.WriteLine(fail == 0 ? "ALL PASS" : fail + " FAILED");
+        return fail == 0 ? 0 : 1;
+    }
+}
