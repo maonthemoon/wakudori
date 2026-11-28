@@ -97,6 +97,34 @@ public static class E2E
         return owner == pid ? window : IntPtr.Zero;
     }
 
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+
+    // 窓を最前面の一番上へ出す(前面にはしない). 会議アプリなどが前に出た場面を作る.
+    public static void RaiseTopmost(IntPtr h)
+    {
+        const uint NOSIZE = 0x0001, NOMOVE = 0x0002, NOACTIVATE = 0x0010;
+        SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, NOSIZE | NOMOVE | NOACTIVATE);
+    }
+
+    // 重なりの順で, そのプロセスの指定したタイトルの窓が, otherより上にあるか.
+    public static bool IsAbove(int pid, string title, IntPtr other)
+    {
+        bool found = false;
+        EnumWindows(delegate(IntPtr h, IntPtr l)
+        {
+            if (h == other) return false;
+            uint p;
+            GetWindowThreadProcessId(h, out p);
+            if (p != pid || !IsWindowVisible(h)) return true;
+            StringBuilder sb = new StringBuilder(256);
+            GetWindowText(h, sb, 256);
+            if (sb.ToString() != title) return true;
+            found = true;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
     // そのプロセスの見えている窓: "タイトル|幅x高さ|前面なら*"
     public static string[] Windows(int pid)
     {
@@ -467,6 +495,12 @@ try {
             $fourth = Join-Path $watchFolder.Value '004.png'
             Check "4 5秒間変化がなければ004.pngはできない" (-not (Wait-Until { Test-Path -LiteralPath $fourth } 5000)) -Required
             Check "4 見張りが続いている" (Test-Watch) -Required
+            # ほかの最前面の窓が前に出ても, 枠は2秒以内に上へ戻る.
+            [E2E]::RaiseTopmost($watchBackground.Handle)
+            Write-Host ("  4 テスト用の窓を前に出した直後に枠が上にある: " +
+                [E2E]::IsAbove($script:proc.Id, 'Wakudori - 見張り中', $watchBackground.Handle))
+            Check "4 ほかの最前面の窓が前に出ても枠が上に戻る" (Wait-Until {
+                [E2E]::IsAbove($script:proc.Id, 'Wakudori - 見張り中', $watchBackground.Handle) } 3000)
             Save-Screen "4 見張り中"
             [E2E]::Press($VK.F12, $VK.Ctrl)
             Check "4 ホットキーで見張りが止まり終了の知らせが出る" (Wait-Until { -not (Test-Watch) -and (Test-WatchDone) }) -Required

@@ -100,6 +100,7 @@ namespace Wakudori
             int extraWidth = Scale(BadgePadding96) * 2 + Scale(DotSize96) + Scale(DotGap96);
             badgeSize = new Size(textSize.Width + extraWidth, Scale(BadgeHeight96));
 
+            KeepOnTop();
             if (captured)
             {
                 flashing = true;
@@ -107,6 +108,16 @@ namespace Wakudori
                 flashTimer.Start();
             }
             UpdateLayout();
+        }
+
+        // ほかの最前面の窓(会議アプリなど)が前に出ても, 枠と札が隠れたままにならないよう, 最前面の一番上へ戻す.
+        // 前面(フォーカス)は奪わない.
+        private void KeepOnTop()
+        {
+            if (!IsHandleCreated) return;
+            NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE
+                | NativeMethods.SWP_NOOWNERZORDER);
         }
 
         private void OnFlashEnded(object sender, EventArgs e)

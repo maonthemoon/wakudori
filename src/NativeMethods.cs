@@ -14,6 +14,11 @@ namespace Wakudori
         public const int WS_EX_NOACTIVATE = 0x08000000;
 
         public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOACTIVATE = 0x0010;
+        public const uint SWP_NOOWNERZORDER = 0x0200;
 
         public const int WM_DPICHANGED = 0x02E0;
         public const int WM_CANCELMODE = 0x001F;
@@ -172,6 +177,9 @@ namespace Wakudori
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetThreadDpiAwarenessContext();
