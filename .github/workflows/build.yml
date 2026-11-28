@@ -61,9 +61,20 @@ jobs:
       - name: Build with csc.exe
         shell: cmd
         run: build.cmd nopause
+      - name: Test e2e control flow
+        shell: pwsh
+        run: ./tests/e2e-control.ps1
       - name: Run e2e
         shell: pwsh
+        env:
+          E2E_SCREENS: ${{ runner.temp }}\e2e-screens
         run: ./tests/e2e.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screens
+          path: ${{ runner.temp }}\e2e-screens
+          retention-days: 7
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

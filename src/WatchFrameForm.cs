@@ -70,6 +70,8 @@ namespace Wakudori
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            // e2eの画面画像には枠と札を写す.
+            if (Environment.GetEnvironmentVariable("WAKUDORI_E2E_SHOW_WATCH_FRAME") == "1") return;
             // 札が範囲の内側に入る場合に備える. 使えない環境でも見張りは続ける.
             try { NativeMethods.SetWindowDisplayAffinity(Handle, NativeMethods.WDA_EXCLUDEFROMCAPTURE); }
             catch (EntryPointNotFoundException) { }

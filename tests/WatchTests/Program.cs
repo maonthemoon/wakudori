@@ -112,6 +112,26 @@ internal static class Program
             "scattered changed pixels are ignored");
     }
 
+    static void TestE2eHighlight()
+    {
+        const int width = 800;
+        const int height = 600;
+        byte[] image = SolidBgra(width, height, 0);
+        FillRect(image, width * 4, 0, 0, width, height, 0, 0, 255);
+        WatchThumb blue = Thumb(image, width, height);
+
+        // e2eと同じ大きさ. 縮小ブロックの境界から1画素ずれた場合も確かめる.
+        FillRect(image, width * 4, 371, 291, 60, 20, 255, 0, 0);
+        WatchThumb highlight = Thumb(image, width, height);
+        int changedPixels = 0;
+        for (int i = 0; i < blue.Rgb.Length; i += 3)
+        {
+            if (highlight.Rgb[i] != blue.Rgb[i]) changedPixels++;
+        }
+        Check(changedPixels > 0 && changedPixels * 200 < blue.Width * blue.Height &&
+            WatchDetector.Changed(blue, highlight), "the e2e highlight is detected below the 0.5% global threshold");
+    }
+
     static void TestThresholds()
     {
         const int width = 101;
@@ -291,6 +311,7 @@ internal static class Program
     {
         TestDownsample();
         TestHighlightsAndNoise();
+        TestE2eHighlight();
         TestThresholds();
         TestState();
         TestInitialSlideBeforePageTurn();
