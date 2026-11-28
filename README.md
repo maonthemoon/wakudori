@@ -168,3 +168,5 @@ dotnet run --project tests/WatchTests
 ## ライセンス
 
 [MIT](LICENSE) © 2026 maonthemoon
+
+マニュアルと紹介のページに埋め込んだ書体の表記は[`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt)にあります.

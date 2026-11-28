@@ -30,6 +30,11 @@ FONTS = [
     ("Noto Sans Mono", "notosansmono/NotoSansMono%5Bwdth,wght%5D.ttf", "2cb2adb378a8f574213e23df697050b83c54c27df465a2015552740b2769a081", {"wght": (400, 700), "wdth": 100}),
 ]
 
+# 埋め込んだ書体の著作権とライセンス. 公開するページだけを開いた人にも見えるように, CSSのコメントに書く
+NOTICE = ("/* 本文とコードの書体(サブセット): Noto Sans JP, (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. "
+          "Noto Sans Mono, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic). "
+          "Both are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org/). */\n")
+
 # コードの中の日本語は, 埋め込んだNoto Sans JPで出す
 FALLBACK = ':root { --font-mono: "Noto Sans Mono", "Noto Sans JP", ui-monospace, Menlo, Consolas, monospace; }\n'
 
@@ -52,6 +57,8 @@ def subset_woff2(path, axes, chars):
     have = set(font.getBestCmap())
     opts = subset.Options()
     opts.hinting = False
+    # 著作権とライセンスの情報(名前の表のすべて)を書体の中に残す(SIL Open Font License 1.1の2.)
+    opts.name_IDs = ["*"]
     opts.layout_features = ["palt", "kern", "liga", "ccmp", "locl"]
     sub = subset.Subsetter(opts)
     sub.populate(text="".join(c for c in chars if ord(c) in have))
@@ -85,7 +92,7 @@ def main():
             print("  Noto Sans JPにない文字: " + "".join(missing))
 
     html = re.sub(r'[ \t]*<link [^>]*href="https://fonts\.(?:googleapis|gstatic)\.com[^>]*>\n?', "", html)
-    style = "<style>\n/* 本文とコードの書体: Noto Sans JP, Noto Sans Monoのサブセット(SIL Open Font License 1.1) */\n" + "".join(faces) + FALLBACK + "</style>\n"
+    style = "<style>\n" + NOTICE + "".join(faces) + FALLBACK + "</style>\n"
     html = html.replace("</head>", style + "</head>", 1)
     left = re.findall(r"fonts\.(?:googleapis|gstatic)", html)
     if left:

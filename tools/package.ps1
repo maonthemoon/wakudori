@@ -1,6 +1,6 @@
 ﻿# 配る用のZIPを作る. 先に build.cmd で out\Wakudori.exe を作っておく.
 #   powershell -ExecutionPolicy Bypass -File tools\package.ps1
-# 中身はリポジトリと同じ場所に置く: bin\Wakudori.exe, docs\manual.html(トレイの「マニュアル」が開く), LICENSE
+# 中身はリポジトリと同じ場所に置く: bin\Wakudori.exe, docs\manual.html(トレイの「マニュアル」が開く), LICENSE, THIRD-PARTY-NOTICES.txt
 # バージョンは src\AssemblyInfo.cs の AssemblyInformationalVersion から読む.
 param([string]$Version = "")
 
@@ -22,6 +22,7 @@ New-Item -ItemType Directory -Path "$stage\bin", "$stage\docs" -Force | Out-Null
 
 Copy-Item "out\Wakudori.exe" "$stage\bin\Wakudori.exe"
 Copy-Item "LICENSE" "$stage\LICENSE"
+Copy-Item "THIRD-PARTY-NOTICES.txt" "$stage\THIRD-PARTY-NOTICES.txt"
 if (-not (Test-Path "docs\manual.html")) { throw "docs\manual.html がありません" }
 Copy-Item "docs\manual.html" "$stage\docs\manual.html"
 
