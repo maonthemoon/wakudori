@@ -38,6 +38,16 @@ internal static class Program
         set.Add(p2);
         Eq("unique 3", System.IO.Path.Combine("d", "x_3.png"), FileNaming.UniquePath("d", "x.png", ex));
 
+        DateTime watchStart = new DateTime(2026, 11, 28, 10, 15, 0);
+        string firstWatch = System.IO.Path.Combine("d", "見張り_20261128_101500");
+        Eq("watch folder", firstWatch, FileNaming.BuildWatchFolderPath("d", watchStart, ex));
+        set.Add(firstWatch);
+        Eq("watch folder collision", firstWatch + "_2", FileNaming.BuildWatchFolderPath("d", watchStart, ex));
+        set.Add(firstWatch + "_2");
+        Eq("watch folder second collision", firstWatch + "_3", FileNaming.BuildWatchFolderPath("d", watchStart, ex));
+        Eq("first watch PNG", "001.png", FileNaming.BuildWatchFileName(1));
+        Eq("four-digit watch PNG", "1000.png", FileNaming.BuildWatchFileName(1000));
+
         Eq("edit name", "20261120_090507_会議_edit.png", FileNaming.BuildEditName(System.IO.Path.Combine("d", "20261120_090507_会議.png")));
         Eq("edit name with dot", "20261120_090507_v1.2_2_edit.png", FileNaming.BuildEditName("20261120_090507_v1.2_2.png"));
 

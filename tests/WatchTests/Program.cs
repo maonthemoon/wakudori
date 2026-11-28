@@ -175,6 +175,39 @@ internal static class Program
             && detector.Feed(a) == WatchResult.Capture, "a new candidate waits for two matches and can revisit an old image");
     }
 
+    static void TestInitialSlideBeforePageTurn()
+    {
+        WatchDetector detector = new WatchDetector();
+        WatchThumb firstSlide = SolidThumb(80);
+        WatchThumb nextSlide = SolidThumb(140);
+
+        Check(detector.Feed(firstSlide) == WatchResult.None, "the sample at startup starts the first slide candidate");
+        Check(detector.Feed(firstSlide) == WatchResult.None, "the one-second sample is the first match");
+        Check(detector.Feed(firstSlide) == WatchResult.Capture,
+            "the two-second sample captures the first slide before the page turns at 2.5 seconds");
+        Check(detector.Feed(nextSlide) == WatchResult.None, "the three-second sample starts the next slide candidate");
+    }
+
+    static void TestCaptureFailureResetsCandidate()
+    {
+        WatchDetector detector = new WatchDetector();
+        WatchThumb a = SolidThumb(80);
+        WatchThumb b = SolidThumb(140);
+
+        Check(detector.Feed(a) == WatchResult.None && detector.Feed(a) == WatchResult.None
+            && detector.Feed(a) == WatchResult.Capture, "capture a reference before a failed screen capture");
+        Check(detector.Feed(b) == WatchResult.None && detector.Feed(b) == WatchResult.None,
+            "the changed frame has one match before a failed screen capture");
+        detector.ResetCandidate();
+        Check(detector.Feed(b) == WatchResult.None, "the first frame after a failed screen capture starts a new candidate");
+        Check(detector.Feed(b) == WatchResult.None, "the new candidate still needs a second match");
+        Check(detector.Feed(b) == WatchResult.Capture, "two matches after a failed screen capture allow saving");
+
+        detector.ResetCandidate();
+        Check(detector.Feed(b) == WatchResult.None && detector.Feed(b) == WatchResult.None
+            && detector.Feed(b) == WatchResult.None, "a failed screen capture preserves the last captured reference");
+    }
+
     static void TestBlackAndGradualChanges()
     {
         WatchThumb black = SolidThumb(0);
@@ -213,13 +246,23 @@ internal static class Program
             && detector.Feed(settled) == WatchResult.Capture, "stability is measured against the first frame of the candidate");
     }
 
+    static void TestElapsedTime()
+    {
+        Check(WatchTime.FormatElapsed(TimeSpan.FromSeconds(5)) == "00:05", "elapsed time pads minutes and seconds");
+        Check(WatchTime.FormatElapsed(TimeSpan.FromSeconds(3599)) == "59:59", "elapsed time before one hour");
+        Check(WatchTime.FormatElapsed(TimeSpan.FromHours(1)) == "1:00:00", "elapsed time displays hours from one hour");
+    }
+
     static int Main()
     {
         TestDownsample();
         TestHighlightsAndNoise();
         TestThresholds();
         TestState();
+        TestInitialSlideBeforePageTurn();
+        TestCaptureFailureResetsCandidate();
         TestBlackAndGradualChanges();
+        TestElapsedTime();
         Console.WriteLine(fail == 0 ? "ALL PASS" : fail + " FAILED");
         return fail == 0 ? 0 : 1;
     }

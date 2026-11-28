@@ -133,17 +133,23 @@ namespace Wakudori
             return true;
         }
 
+        public void ResetCandidate()
+        {
+            candidate = null;
+            matches = 0;
+        }
+
         public WatchResult Feed(WatchThumb t)
         {
             if (IsBlack(t))
             {
-                candidate = null;
+                ResetCandidate();
                 return WatchResult.Black;
             }
             // 基準は直前に撮った画像に固定し, 少しずつ進む変化も拾う.
             if (reference != null && !Changed(reference, t))
             {
-                candidate = null;
+                ResetCandidate();
                 return WatchResult.None;
             }
             if (candidate == null || Changed(candidate, t))
@@ -157,7 +163,7 @@ namespace Wakudori
             if (matches < StableMatches) return WatchResult.None;
 
             reference = t;
-            candidate = null;
+            ResetCandidate();
             return WatchResult.Capture;
         }
 

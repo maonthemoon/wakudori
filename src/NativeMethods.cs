@@ -8,8 +8,12 @@ namespace Wakudori
     internal static class NativeMethods
     {
         public const int WS_EX_TOPMOST = 0x00000008;
+        public const int WS_EX_TRANSPARENT = 0x00000020;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
         public const int WS_EX_LAYERED = 0x00080000;
+        public const int WS_EX_NOACTIVATE = 0x08000000;
+
+        public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
 
         public const int WM_DPICHANGED = 0x02E0;
         public const int WM_CANCELMODE = 0x001F;
@@ -165,6 +169,9 @@ namespace Wakudori
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetThreadDpiAwarenessContext();

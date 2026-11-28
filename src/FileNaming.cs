@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -7,12 +8,24 @@ namespace Wakudori
     // ファイル名の組み立て(UIに依存しない)
     internal static class FileNaming
     {
+        private const string TimestampFormat = "yyyyMMdd_HHmmss";
+
         // 日時の後に範囲名を付ける. 範囲名が空なら日時だけ
         public static string BuildFileName(string regionName, DateTime time)
         {
             string name = Sanitize(regionName);
-            string stamp = time.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            string stamp = time.ToString(TimestampFormat, CultureInfo.InvariantCulture);
             return stamp + (name.Length == 0 ? "" : "_" + name) + ".png";
+        }
+
+        public static string BuildWatchFolderPath(string dir, DateTime startedAt, Func<string, bool> exists)
+        {
+            return UniquePath(dir, "見張り_" + startedAt.ToString(TimestampFormat, CultureInfo.InvariantCulture), exists);
+        }
+
+        public static string BuildWatchFileName(int number)
+        {
+            return number.ToString("D3", CultureInfo.InvariantCulture) + ".png";
         }
 
         private static string Sanitize(string s)
