@@ -298,6 +298,18 @@ function Check-InvalidCaptureKey([string]$number) {
     Check "$number Aで撮る" (Wait-Until { (Get-Shots) -eq $n + 1 })
 }
 
+function Test-RedRectangle([System.Drawing.Bitmap]$bitmap) {
+    $centerX = [int][Math]::Floor($bitmap.Width / 2)
+    $centerY = [int][Math]::Floor($bitmap.Height / 2)
+    if ($centerX -lt 10 -or $centerX + 10 -ge $bitmap.Width) { return $false }
+
+    $red = [System.Drawing.Color]::Red.ToArgb()
+    foreach ($offset in -10, 0, 10) {
+        if ($bitmap.GetPixel($centerX + $offset, $centerY).ToArgb() -ne $red) { return $false }
+    }
+    return $true
+}
+
 function Show-TestBackground($form) {
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $form.FormBorderStyle = 'None'
@@ -394,7 +406,11 @@ try {
     try {
         Invoke-Case "4" {
             Write-Settings $null
+            $watchBackground.TopMost = $true
             Show-TestBackground $watchBackground
+            $watchBackground.Activate()
+            Write-Host ("  4 テスト用の窓にフォーカスがある: " +
+                ([E2E]::ForegroundWindow($PID) -eq $watchBackground.Handle))
             Check "4 選択画面が開く" (Open-Selection) -Required
             $watchKeySent.Value = $true
             [E2E]::Press($VK.W)
@@ -429,7 +445,15 @@ try {
             $watchBackground.Controls.Add($panel)
             $watchBackground.Refresh()
             [System.Windows.Forms.Application]::DoEvents()
+            Write-Host ("  4 赤い長方形を出した窓にフォーカスがある: " +
+                ([E2E]::ForegroundWindow($PID) -eq $watchBackground.Handle))
             Check "4 赤い長方形を出すと003.pngができる" (Wait-Until { Test-Path -LiteralPath $third -PathType Leaf } 10000) -Required
+            # 色判定で中断しても, 判定対象の画像を成果物に残す.
+            New-Item -ItemType Directory -Force -Path $screens | Out-Null
+            Copy-Item -LiteralPath $third -Destination (Join-Path $screens '4 撮影 003.png')
+            $bitmap = [System.Drawing.Bitmap]::new($third)
+            try { Check "4 003.pngの中央付近に赤い長方形が写る" (Test-RedRectangle $bitmap) -Required }
+            finally { $bitmap.Dispose() }
 
             $fourth = Join-Path $watchFolder.Value '004.png'
             Check "4 5秒間変化がなければ004.pngはできない" (-not (Wait-Until { Test-Path -LiteralPath $fourth } 5000)) -Required
@@ -453,7 +477,7 @@ try {
                 @(Get-ChildItem -LiteralPath $watchFolder.Value -File -Filter '*.png').Count -ne 3
             } 5000))
             # 枠と札が保存範囲に入っていないかを, 画面全体の画像と見比べられるようにする.
-            foreach ($file in '001.png', '002.png', '003.png') {
+            foreach ($file in '001.png', '002.png') {
                 Copy-Item -LiteralPath (Join-Path $watchFolder.Value $file) -Destination (Join-Path $screens "4 撮影 $file")
             }
         } $watchKeySent

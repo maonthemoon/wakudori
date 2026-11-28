@@ -8,7 +8,10 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($e2ePath, [ref]
 if ($errors.Count -gt 0) { throw ($errors -join "`n") }
 
 function Assert([bool]$ok, [string]$name) {
-    if (-not $ok) { throw $name }
+    if (-not $ok) {
+        Write-Host "FAIL $name"
+        exit 1
+    }
     Write-Host "PASS $name"
 }
 
@@ -31,7 +34,7 @@ finally {
 }
 
 # 本体の関数を読み込み, 窓, キー入力, 再起動を置き換える.
-foreach ($name in "Check", "Open-FromHotkey", "Reset-Screens", "Invoke-Case") {
+foreach ($name in "Check", "Open-FromHotkey", "Reset-Screens", "Invoke-Case", "Test-RedRectangle") {
     $definition = $ast.Find({
         param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -52,6 +55,7 @@ public static class E2E
     public static int VisibilityQueries;
     public static IntPtr ForegroundWindow(int pid)
     {
+        if (pid != 1) return IntPtr.Zero;
         return ++FocusQueries > 1 && Visible ? new IntPtr(123) : IntPtr.Zero;
     }
     public static void Press(int key)
@@ -91,6 +95,7 @@ function Wait-Until([scriptblock]$cond, [int]$ms) {
     for ($i = 0; $i -lt 3; $i++) { if (& $cond) { return $true } }
     return $false
 }
+# 保存の呼び出しだけを記録する. 画像は作らない.
 function Save-Screen([string]$name) {
     $script:failureScreens += $name
     $script:backgroundAtFailure = $script:backgroundOpen
@@ -108,16 +113,19 @@ Assert ([E2E]::EscPresses -eq 1 -and [E2E]::VisibilityQueries -eq 2 -and
 ) "背後の選択画面が前面に来てからEscを送り, 閉じるまで待つ"
 [E2E]::Visible = $true
 [E2E]::CanClose = $false
-Reset-Screens "選択画面"
-Assert ($script:failed -eq 1 -and $script:restarts -eq 1 -and -not [E2E]::Visible) "Escで閉じなければ失敗を記録して再起動する"
+# 意図した失敗のログは自己テスト内で受け取る.
+$output = Reset-Screens "選択画面" 6>&1
+Assert ($script:failed -eq 1 -and $script:restarts -eq 1 -and -not [E2E]::Visible -and
+    ($output | ForEach-Object ToString) -contains "FAIL 選択画面 ケース後にWakudoriの窓を閉じる"
+) "Escで閉じなければ失敗を記録して再起動する"
 
 [E2E]::Visible = $true
 $script:watch = $true
 $script:continued = $false
-Invoke-Case "4" {
+$null = Invoke-Case "4" {
     Check "4 003.pngができる" $false -Required
     $script:continued = $true
-} ([ref]$true)
+} ([ref]$true) 6>&1
 Assert (-not $script:continued -and $script:failureScreens -contains "FAIL_4 003.pngができる" -and
     [E2E]::EscPresses -eq 2 -and $script:restarts -eq 2 -and -not $script:watch -and -not [E2E]::Visible
 ) "見張りで前提が崩れたらケース内の操作を打ち切り, 再起動して後続のケースに進む"
@@ -128,17 +136,61 @@ $case4 = $ast.Find({
         $node.Finally.Extent.Text.Contains('$watchBackground.Dispose()')
 }, $true)
 $watchKeySent = [ref]$false
-$watchBackground = [pscustomobject]@{}
-$watchBackground | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $script:backgroundOpen = $false }
+$watchBackground = [pscustomobject]@{ TopMost = $false; Handle = [IntPtr]456 }
+$script:backgroundActivationAttempted = $false
+$script:selectionOpens = 0
+$watchBackground | Add-Member -MemberType ScriptMethod -Name Activate -Value {
+    $script:backgroundActivationAttempted = $script:backgroundOpen -and $this.TopMost
+}
+$watchBackground | Add-Member -MemberType ScriptMethod -Name Dispose -Value {
+    $script:backgroundOpen = $false
+}
 function Write-Settings([string]$captureKey) {}
 function Show-TestBackground($form) { $script:backgroundOpen = $true }
-function Open-Selection { $true }
+function Open-Selection { $script:selectionOpens++; $true }
 function Test-Overlay { $false }
-. ([scriptblock]::Create($case4.Extent.Text))
-Assert ([E2E]::WatchPresses -eq 1 -and $script:restarts -eq 3 -and [E2E]::EscPresses -eq 2 -and
+$runCase4 = [scriptblock]::Create($case4.Extent.Text)
+$output = . $runCase4 6>&1
+Assert ($script:backgroundActivationAttempted -and
+    ($output | ForEach-Object ToString) -contains "  4 テスト用の窓にフォーカスがある: False" -and
+    $script:selectionOpens -eq 1 -and [E2E]::WatchPresses -eq 1
+) "最前面のテスト用の窓がフォーカスを得られなくても選択画面を開いてWを送る"
+Assert ($script:restarts -eq 3 -and [E2E]::EscPresses -eq 2 -and
     $script:failureScreens -contains "FAIL_4 選択画面が閉じて見張りの窓が出る" -and
     $script:backgroundAtFailure -and -not $script:backgroundOpen
 ) "見張りの窓が出なくても, 背景が見えている間に失敗画面を保存し, 再起動する"
+
+# 色判定の失敗でケースが中断する前に, 判定対象を成果物に残す.
+$copyThird = $case4.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.Extent.Text -eq "Copy-Item -LiteralPath `$third -Destination (Join-Path `$screens '4 撮影 003.png')"
+}, $true)
+$checkThirdColor = $case4.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Check' -and
+        $node.Extent.Text.Contains('Test-RedRectangle $bitmap')
+}, $true)
+Assert ($null -ne $copyThird -and $null -ne $checkThirdColor -and
+    $copyThird.Extent.EndOffset -lt $checkThirdColor.Extent.StartOffset
+) "003.pngを色判定の前に画面の成果物フォルダーへコピーする"
+
+# 撮影画像の色判定をメモリ上の画像で確かめる.
+Add-Type -AssemblyName System.Drawing.Common
+$bitmap = [System.Drawing.Bitmap]::new(100, 80)
+try {
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try { $graphics.Clear([System.Drawing.Color]::Blue) }
+    finally { $graphics.Dispose() }
+    Assert (-not (Test-RedRectangle $bitmap)) "青一色の画像は赤い長方形の判定を通らない"
+    $bitmap.SetPixel(50, 40, [System.Drawing.Color]::Red)
+    Assert (-not (Test-RedRectangle $bitmap)) "中央の1画素だけが赤い画像は判定を通らない"
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try { $graphics.FillRectangle([System.Drawing.Brushes]::Red, 20, 30, 60, 20) }
+    finally { $graphics.Dispose() }
+    Assert (Test-RedRectangle $bitmap) "青地の中央に赤い長方形があれば判定を通る"
+}
+finally { $bitmap.Dispose() }
 
 [E2E]::ShowOnHotkey = 2
 $opened = Open-FromHotkey { [E2E]::Visible }
