@@ -253,6 +253,40 @@ internal static class Program
         Check(WatchTime.FormatElapsed(TimeSpan.FromHours(1)) == "1:00:00", "elapsed time displays hours from one hour");
     }
 
+    static void TestFinishedText()
+    {
+        Check(WatchDoneText.Heading(WatchStopReason.Hotkey) == "見張りを終えました", "manual stop heading");
+        Check(WatchDoneText.Heading(WatchStopReason.MaxDuration) == "見張りを終えました(2時間たちました)", "time limit heading");
+        Check(WatchDoneText.Heading(WatchStopReason.MaxShots) == "見張りを終えました(500枚になりました)", "shot limit heading");
+        Check(WatchDoneText.Heading(WatchStopReason.Error) == "見張りの画像を保存できませんでした", "save error heading");
+
+        const string saveDir = @"C:\画像";
+        const string folder = saveDir + @"\見張り_20261128_090000";
+        const string empty = "変化がなかったので, 撮った画像はありません.";
+        const string protectedScreen = "保護された画面(真っ黒)は撮りませんでした.";
+        WatchFinishedEventArgs saved = new WatchFinishedEventArgs(WatchStopReason.Hotkey, 3, folder, false, null);
+        Check(WatchDoneText.Body(saved) == "3枚を撮りました.\r\n" + folder, "saved count and full folder path");
+        Check(WatchDoneText.Hint(saved.ShotCount) == "クリックで保存先を開く · 数秒で消える", "saved images have an open-folder hint");
+
+        WatchFinishedEventArgs unsaved = new WatchFinishedEventArgs(WatchStopReason.Hotkey, 0, null, false, null);
+        Check(WatchDoneText.Body(unsaved) == empty, "zero shots have no folder line");
+        Check(WatchDoneText.Hint(unsaved.ShotCount) == "数秒で消える", "zero shots have only the auto-dismiss hint");
+
+        WatchFinishedEventArgs black = new WatchFinishedEventArgs(WatchStopReason.MaxDuration, 0, null, true, null);
+        Check(WatchDoneText.Body(black) == empty + "\r\n" + protectedScreen, "skipped black is reported even with zero shots");
+        WatchFinishedEventArgs mixed = new WatchFinishedEventArgs(WatchStopReason.MaxShots, 500, folder, true, null);
+        Check(WatchDoneText.Body(mixed) == "500枚を撮りました.\r\n" + folder + "\r\n" + protectedScreen,
+            "skipped black is reported alongside saved shots");
+
+        const string error = "ディスクに空きがありません.";
+        WatchFinishedEventArgs partial = new WatchFinishedEventArgs(WatchStopReason.Error, 3, folder, false, error);
+        Check(WatchDoneText.ErrorBody(partial, saveDir) == "3枚を撮りました.\r\n" + folder + "\r\n\r\n" + error,
+            "save error includes the saved count, session folder, and reason");
+        WatchFinishedEventArgs firstError = new WatchFinishedEventArgs(WatchStopReason.Error, 0, null, false, error);
+        Check(WatchDoneText.ErrorBody(firstError, saveDir) == "0枚を撮りました.\r\n保存先(設定): " + saveDir + "\r\n\r\n" + error,
+            "first shot error includes the configured folder when the session folder does not exist");
+    }
+
     static int Main()
     {
         TestDownsample();
@@ -263,6 +297,7 @@ internal static class Program
         TestCaptureFailureResetsCandidate();
         TestBlackAndGradualChanges();
         TestElapsedTime();
+        TestFinishedText();
         Console.WriteLine(fail == 0 ? "ALL PASS" : fail + " FAILED");
         return fail == 0 ? 0 : 1;
     }

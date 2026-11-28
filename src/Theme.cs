@@ -134,7 +134,7 @@ namespace Wakudori
         // アプリのアイコン(案G「枠とつまみ」): クレイ色の角丸の四角に, アイボリーの細い枠と右の辺の太いつまみ.
         // 座標は64×64の格子. exeのアイコン(app.ico)はtools/make_icon.pyで同じ絵を描いている. 変えるときは両方直す.
         // 返すハンドルは, 使い終わったらDestroyIconで消す.
-        public static IntPtr CreateAppIconHandle(int size)
+        public static IntPtr CreateAppIconHandle(int size, bool watching = false)
         {
             if (size < 16) size = 16;
             float k = size / 64f;
@@ -164,6 +164,15 @@ namespace Wakudori
                         knob.StartCap = LineCap.Round;
                         knob.EndCap = LineCap.Round;
                         g.DrawLine(knob, 53 * k, 25 * k, 53 * k, 39 * k);
+                    }
+                    if (watching)
+                    {
+                        using (SolidBrush rim = new SolidBrush(Bg))
+                        using (SolidBrush dot = new SolidBrush(Danger))
+                        {
+                            g.FillEllipse(rim, 38 * k, 38 * k, 26 * k, 26 * k);
+                            g.FillEllipse(dot, 42 * k, 42 * k, 18 * k, 18 * k);
+                        }
                     }
                 }
                 return bmp.GetHicon();

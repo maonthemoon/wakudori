@@ -19,11 +19,14 @@ namespace Wakudori
         private readonly HotkeyWindow hotkeyWindow;
         private readonly NotifyIcon tray;
         private readonly IntPtr iconHandle;
+        private readonly IntPtr watchIconHandle;
         private readonly Timer cleanupTimer;
         private CancellationTokenSource cleanupRun;
         private int? requestedCleanupDays;
         private SettingsForm settingsForm;
         private CaptureSession session;
+        private WatchSession watchSession;
+        private WatchDoneToast watchToast;
         private bool dialogOpen;
         private volatile bool exiting;
         private bool askingExit;
@@ -35,9 +38,12 @@ namespace Wakudori
             Application.ThreadException += OnThreadException;
 
             hotkeyWindow = new HotkeyWindow();
-            hotkeyWindow.Pressed += delegate { OpenSelection(); };
+            hotkeyWindow.Pressed += OnHotkeyPressed;
+            hotkeyWindow.SessionEnded += OnSessionEnded;
 
-            iconHandle = Theme.CreateAppIconHandle(SystemInformation.SmallIconSize.Width);
+            int iconSize = SystemInformation.SmallIconSize.Width;
+            iconHandle = Theme.CreateAppIconHandle(iconSize);
+            watchIconHandle = Theme.CreateAppIconHandle(iconSize, true);
             tray = new NotifyIcon();
             tray.Icon = Icon.FromHandle(iconHandle);
             tray.ContextMenuStrip = BuildMenu();
@@ -62,6 +68,13 @@ namespace Wakudori
         }
 
         // ---- ホットキー ----
+
+        private void OnHotkeyPressed(object sender, EventArgs e)
+        {
+            if (exiting) return;
+            if (watchSession != null) watchSession.Stop(WatchStopReason.Hotkey);
+            else OpenSelection();
+        }
 
         private void SetUpHotkeyAtStartup()
         {
@@ -324,6 +337,11 @@ namespace Wakudori
 
         private void UpdateTrayText()
         {
+            if (watchSession != null)
+            {
+                tray.Text = "Wakudori 見張り中(" + watchSession.ShotCount + "枚)";
+                return;
+            }
             // 問い合わせのときに版が分かるよう, 版も出す
             string name = "Wakudori " + Application.ProductVersion;
             string text = hotkeyWindow.IsRegistered && settings.Hotkey != null
@@ -337,14 +355,15 @@ namespace Wakudori
 
         private void OpenSelection()
         {
-            if (exiting || dialogOpen) return;
+            if (exiting || dialogOpen || watchSession != null) return;
             if (session != null)
             {
                 session.Activate(); // 開いている選択画面を前に出す
                 return;
             }
 
-            // まず画面を撮る. 選択画面や知らせを出すと, 開いていたメニューが閉じるため.
+            CloseWatchToast();
+            // 選択画面や知らせを出す前に画面を撮る. 開いていたメニューが閉じるため.
             Rectangle[] monitors = MonitorBounds();
             FrozenScreens frozen = null;
             try
@@ -375,6 +394,7 @@ namespace Wakudori
             {
                 session = new CaptureSession(latest.SaveDir, (Keys)latest.CaptureVk, DefaultFrameSize, monitors, frozen);
                 session.Finished += delegate { session = null; };
+                session.WatchRequested += (frame, name) => StartWatch(frame, name, latest.SaveDir);
             }
             catch (Exception ex)
             {
@@ -393,6 +413,53 @@ namespace Wakudori
             return r;
         }
 
+        // ---- 見張り ----
+
+        private void StartWatch(Rectangle frame, string name, string saveDir)
+        {
+            if (exiting || watchSession != null) return;
+            CloseWatchToast();
+            WatchSession watch = new WatchSession(frame, saveDir, name);
+            watch.ShotSaved += delegate { UpdateTrayText(); };
+            watch.Finished += (sender, result) => OnWatchFinished(result, saveDir);
+            watchSession = watch;
+            tray.Icon = Icon.FromHandle(watchIconHandle);
+            UpdateTrayText();
+            watch.Start();
+        }
+
+        private void OnWatchFinished(WatchFinishedEventArgs result, string saveDir)
+        {
+            watchSession = null;
+            if (exiting || result.Reason == WatchStopReason.Exit) return;
+            tray.Icon = Icon.FromHandle(iconHandle);
+            UpdateTrayText();
+
+            CloseWatchToast();
+            if (result.Reason == WatchStopReason.Error)
+            {
+                bool dialogWasOpen = dialogOpen;
+                dialogOpen = true;
+                try
+                {
+                    Notice.Show(WatchDoneText.Heading(result.Reason), WatchDoneText.ErrorBody(result, saveDir), NoticeKind.Error);
+                }
+                finally
+                {
+                    dialogOpen = dialogWasOpen;
+                }
+                return;
+            }
+            watchToast = new WatchDoneToast(result);
+            watchToast.FormClosed += delegate { watchToast = null; };
+            watchToast.Show();
+        }
+
+        private void CloseWatchToast()
+        {
+            if (watchToast != null) watchToast.Close();
+        }
+
         // ---- メニュー ----
 
         private ContextMenuStrip BuildMenu()
@@ -407,6 +474,16 @@ namespace Wakudori
             ToolStripMenuItem select = new ToolStripMenuItem("撮影");
             select.Font = new Font(select.Font, FontStyle.Bold);
             select.Click += delegate { OpenSelection(); };
+            ToolStripMenuItem stopWatch = new ToolStripMenuItem("見張りをやめる");
+            stopWatch.Font = select.Font;
+            stopWatch.Available = false;
+            stopWatch.Click += delegate { if (watchSession != null) watchSession.Stop(WatchStopReason.Hotkey); };
+            menu.Opening += delegate
+            {
+                stopWatch.Available = watchSession != null;
+                select.Enabled = watchSession == null;
+            };
+            menu.Items.Add(stopWatch);
             menu.Items.Add(select);
             menu.Items.Add(new ToolStripMenuItem("設定", null, delegate { OpenSettings(); }));
             menu.Items.Add(new ToolStripSeparator());
@@ -517,7 +594,16 @@ namespace Wakudori
         {
             if (exiting || askingExit || dialogOpen) return;
             if (!ConfirmDiscardMarks()) return;
+            Shutdown();
+        }
+
+        private void Shutdown()
+        {
+            if (exiting) return;
             exiting = true;
+            hotkeyWindow.SessionEnded -= OnSessionEnded;
+            if (watchSession != null) watchSession.Stop(WatchStopReason.Exit);
+            CloseWatchToast();
             cleanupTimer.Dispose();
             if (settingsForm != null) settingsForm.Close();
             if (session != null) session.Close();
@@ -525,7 +611,14 @@ namespace Wakudori
             tray.Dispose();
             hotkeyWindow.Dispose();
             NativeMethods.DestroyIcon(iconHandle);
+            NativeMethods.DestroyIcon(watchIconHandle);
             ExitThread();
+        }
+
+        private void OnSessionEnded(object sender, EventArgs e)
+        {
+            // Windowsの終了が確定したので, UIスレッドで記録を残してから応答する.
+            Shutdown();
         }
     }
 }

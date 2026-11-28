@@ -4,18 +4,20 @@ using System.Windows.Forms;
 
 namespace Wakudori
 {
-    // ホットキーを1つ登録し, 押されたらPressedを出す見えないウィンドウ.
+    // ホットキーとWindowsのセッション終了を受け取る見えないウィンドウ.
     internal sealed class HotkeyWindow : NativeWindow, IDisposable
     {
         private const int HotkeyId = 1;
+        private const int WM_ENDSESSION = 0x0016;
         private const int ERROR_HOTKEY_ALREADY_REGISTERED = 1409;
         private bool registered;
 
         public event EventHandler Pressed;
+        public event EventHandler SessionEnded;
 
         public HotkeyWindow()
         {
-            CreateHandle(new CreateParams());
+            CreateHandle(new CreateParams { Caption = "Wakudori HotkeyWindow" });
         }
 
         public bool IsRegistered { get { return registered; } }
@@ -53,6 +55,13 @@ namespace Wakudori
             {
                 EventHandler p = Pressed;
                 if (p != null) p(this, EventArgs.Empty);
+                return;
+            }
+            if (m.Msg == WM_ENDSESSION && m.WParam != IntPtr.Zero)
+            {
+                EventHandler ended = SessionEnded;
+                if (ended != null) ended(this, EventArgs.Empty);
+                m.Result = IntPtr.Zero;
                 return;
             }
             base.WndProc(ref m);

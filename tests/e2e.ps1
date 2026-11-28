@@ -24,6 +24,8 @@ public static class E2E
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr h, uint msg, IntPtr wParam,
+        IntPtr lParam, uint flags, uint timeout, out IntPtr result);
     delegate bool EnumProc(IntPtr h, IntPtr lParam);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 
@@ -36,6 +38,31 @@ public static class E2E
         keybd_event(vk, 0, 0, UIntPtr.Zero);
         keybd_event(vk, 0, KEYUP, UIntPtr.Zero);
         for (int i = mods.Length - 1; i >= 0; i--) keybd_event(mods[i], 0, KEYUP, UIntPtr.Zero);
+    }
+
+    // ホットキーの窓にRestart Managerと同じ終了メッセージを送る.
+    public static void SendEndSession(int pid, bool confirmed)
+    {
+        IntPtr window = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h, IntPtr l)
+        {
+            uint p;
+            GetWindowThreadProcessId(h, out p);
+            if (p != pid || IsWindowVisible(h)) return true;
+            var title = new StringBuilder(256);
+            GetWindowText(h, title, title.Capacity);
+            if (title.ToString() != "Wakudori HotkeyWindow") return true;
+            window = h;
+            return false;
+        }, IntPtr.Zero);
+        if (window == IntPtr.Zero) throw new InvalidOperationException("ホットキーの窓が見つかりません");
+        const uint WM_ENDSESSION = 0x0016;
+        const int ENDSESSION_CLOSEAPP = 0x1;
+        const uint SMTO_ABORTIFHUNG = 0x2;
+        IntPtr result;
+        IntPtr sent = SendMessageTimeout(window, WM_ENDSESSION, new IntPtr(confirmed ? 1 : 0),
+            new IntPtr(ENDSESSION_CLOSEAPP), SMTO_ABORTIFHUNG, 2000, out result);
+        if (!confirmed && sent == IntPtr.Zero) throw new InvalidOperationException("終了取り消しを送れません");
     }
 
     // そのプロセスの見えている窓: "タイトル|幅x高さ|前面なら*"
@@ -62,25 +89,31 @@ public static class E2E
 }
 "@
 
-$VK = @{ Enter = 0x0D; Ctrl = 0x11; F12 = 0x7B; A = 0x41; E = 0x45; Q = 0x51 }
+$VK = @{ Enter = 0x0D; Ctrl = 0x11; F12 = 0x7B; A = 0x41; E = 0x45; Q = 0x51; W = 0x57; One = 0x31 }
 $cfgDir = Join-Path $env:APPDATA "Wakudori"
 $shots = Join-Path ([IO.Path]::GetTempPath()) ("wakudori-e2e-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $cfgDir, $shots | Out-Null
 $script:failed = 0
 $script:proc = $null
 
-function Write-Settings([string]$captureKey) {
-    $s = [ordered]@{ hotkey = "Ctrl+F12"; saveDir = $shots }
+function Write-Settings([string]$captureKey, [string]$saveDir = $shots) {
+    $s = [ordered]@{ hotkey = "Ctrl+F12"; saveDir = $saveDir }
     if ($captureKey) { $s.captureKey = $captureKey }
     $s | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $cfgDir "settings.json")
 }
 
 function Get-Wins { @([E2E]::Windows($script:proc.Id)) }
 # 画面全体を覆う窓(選択画面か書き込みの画面). 名前で分ける
-function Test-Overlay { [bool](Get-Wins | Where-Object { $_ -match '^Wakudori\|(\d+)x' -and [int]$Matches[1] -ge 640 }) }
+function Test-Overlay([switch]$Foreground) {
+    [bool](Get-Wins | Where-Object {
+        $_ -match '^Wakudori\|(\d+)x' -and [int]$Matches[1] -ge 640 -and (-not $Foreground -or $_.EndsWith('|*'))
+    })
+}
 function Test-Mark { [bool](Get-Wins | Where-Object { $_ -like 'Wakudori - *' }) }
 # お知らせ(小さな窓)
 function Test-Notice { [bool](Get-Wins | Where-Object { $_ -match '^Wakudori\|(\d+)x' -and [int]$Matches[1] -lt 640 }) }
+function Test-Watch { [bool](Get-Wins | Where-Object { $_ -like 'Wakudori - 見張り中|*' }) }
+function Test-WatchDone { [bool](Get-Wins | Where-Object { $_ -like 'Wakudori - 見張りを終えました|*' }) }
 function Get-Shots { @(Get-ChildItem $shots -Filter *.png | Where-Object { $_.Name -notlike '*_edit.png' }).Count }
 function Get-Edits { @(Get-ChildItem $shots -Filter *_edit.png).Count }
 
@@ -113,6 +146,14 @@ function Reset-Screens {
         [E2E]::Press(0x1B) # Esc
         Start-Sleep -Milliseconds 500
     }
+}
+
+function Start-Watch([switch]$Named) {
+    if (-not (Open-Selection)) { throw "見張りを始めるための選択画面が開きません" }
+    if (-not (Wait-Until { Test-Overlay -Foreground })) { throw "選択画面が前面に来ません" }
+    if ($Named) { [E2E]::Press($VK.One) }
+    [E2E]::Press($VK.W)
+    if (-not (Wait-Until { (Test-Watch) -and -not (Test-Overlay) })) { throw "見張りが始まりません" }
 }
 
 try {
@@ -171,6 +212,83 @@ try {
     [E2E]::Press($VK.A)
     Check "3 Aで撮る" (Wait-Until { (Get-Shots) -eq $n + 1 })
     Reset-Screens
+
+    # T5の回帰確認. 見張りが安定して撮れるよう, 主モニターに白い窓を出す.
+    Add-Type -AssemblyName System.Windows.Forms
+    $background = New-Object System.Windows.Forms.Form
+    try {
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $background.FormBorderStyle = 'None'
+        $background.StartPosition = 'Manual'
+        $background.Bounds = $bounds
+        $background.BackColor = [System.Drawing.Color]::White
+        $background.Show()
+        $background.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+        [System.Windows.Forms.Cursor]::Position = [System.Drawing.Point]::new(($bounds.X + 200), ($bounds.Y + 200))
+
+        Write-Settings $null
+        $regionsPath = Join-Path $cfgDir "regions.json"
+        $region = @{ name = "watch-regression"; x = ($bounds.X + 200); y = ($bounds.Y + 200); width = 320; height = 240 }
+        @{ regions = @($region) } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM $regionsPath
+        Start-Watch -Named
+        $last = (Get-Content -Raw $regionsPath | ConvertFrom-Json).last
+        Check "T5 R2 見張った範囲の座標だけを保存する" ($last.x -eq $region.x -and $last.y -eq $region.y -and
+            $last.width -eq $region.width -and $last.height -eq $region.height -and $null -eq $last.name)
+        $singleShotDir = Join-Path $shots "single"
+        New-Item -ItemType Directory -Path $singleShotDir | Out-Null
+        Write-Settings $null $singleShotDir
+        [E2E]::Press($VK.F12, $VK.Ctrl)
+        if (-not (Wait-Until { Test-WatchDone })) { throw "見張りの終了通知が出ません" }
+        [E2E]::Press($VK.F12, $VK.Ctrl)
+        if (-not (Wait-Until { Test-Overlay } 3000)) { throw "終了通知が出た後に選択画面が開きません" }
+        Check "T5 R1 撮影を開くと終了通知がすぐ閉じる" (-not (Test-WatchDone))
+        if (-not (Wait-Until { Test-Overlay -Foreground })) { throw "選択画面が前面に来ません" }
+        [E2E]::Press($VK.Enter)
+        if (-not (Wait-Until { @(Get-ChildItem $singleShotDir -Filter *.png).Count -eq 1 })) {
+            throw "前回の範囲の画像が保存されません"
+        }
+        $newShot = @(Get-ChildItem $singleShotDir -Filter *.png -Name)
+        Check "T5 R2 前回の範囲のファイル名は日時だけ" ($newShot.Count -eq 1 -and $newShot[0] -match '^\d{8}_\d{6}\.png$')
+
+        # ファイルを保存先に指定して, 画像の保存を失敗させる.
+        $blockedPath = Join-Path $shots "blocked"
+        Set-Content -Path $blockedPath -Value "file"
+        Write-Settings $null $blockedPath
+        Start-Watch
+        if (-not (Wait-Until { (Test-Notice) -and -not (Test-Watch) })) { throw "見張りの保存エラーが出ません" }
+        [E2E]::Press($VK.F12, $VK.Ctrl)
+        Start-Sleep -Milliseconds 500
+        Check "T5 R4 保存エラーを表示中は選択画面を開かない" ((Test-Notice) -and -not (Test-Overlay))
+        Reset-Screens
+        if (Test-Notice) { throw "見張りの保存エラーを閉じられません" }
+
+        Write-Settings $null
+        $olderFolders = @(Get-ChildItem $shots -Directory -Name)
+        Start-Watch
+        $savedFolder = [ref]''
+        if (-not (Wait-Until {
+            $folder = Get-ChildItem $shots -Directory | Where-Object {
+                $_.Name -match '^見張り_\d{8}_\d{6}(_\d+)?$' -and
+                    $_.Name -notin $olderFolders -and (Test-Path (Join-Path $_.FullName "001.png"))
+            } | Select-Object -First 1
+            if ($null -eq $folder) { return $false }
+            $savedFolder.Value = $folder.FullName
+            return $true
+        })) { throw "終了前に見張りの画像が保存されません" }
+        [E2E]::SendEndSession($script:proc.Id, $false)
+        Check "T5 Restart Managerの終了要求が取り消されたら見張りを続ける" (Test-Watch)
+        [E2E]::SendEndSession($script:proc.Id, $true)
+        Check "T5 Restart Managerの終了要求でプロセスが正常に終了する" (
+            (Wait-Until { $script:proc.HasExited }) -and $script:proc.ExitCode -eq 0)
+        $folderRecord = "`tfolder`t1`t" + $savedFolder.Value
+        $records = @(Get-Content (Join-Path $cfgDir "captures.log") | Where-Object { $_.EndsWith($folderRecord) })
+        Check "T5 終了確定時は確定済みフォルダーを記録する" (
+            $records.Count -eq 1 -and -not (Test-Watch) -and -not (Test-WatchDone) -and -not (Test-Notice))
+    }
+    finally {
+        $background.Dispose()
+    }
 }
 catch {
     Write-Host "FAIL 例外: $_"

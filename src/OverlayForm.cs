@@ -59,6 +59,7 @@ namespace Wakudori
         public bool AllowClose;             // trueのときだけ閉じられる(Alt+F4で1枚だけ閉じないように)
 
         public event EventHandler CaptureRequested;
+        public event EventHandler WatchRequested;             // W: 見張りを始める
         public event EventHandler EditRequested;              // E: 撮って書き込む(H5)
         public event EventHandler FullScreenRequested;        // F: モニター全体を撮る(H2)
         public event EventHandler FullScreenEditRequested;    // Shift+F: モニター全体を撮って書き込む
@@ -1228,7 +1229,14 @@ namespace Wakudori
                 return true;
             }
 
-            // Enter, 撮影キー, Eは見えている枠(下見中なら下見の範囲)を撮る. それ以外のキーは, 下見をやめて元の枠に戻してから働く.
+            // Wは見えている枠(下見中なら下見の範囲)を見張る.
+            if (keyData == Keys.W)
+            {
+                if (dragMode == DragMode.None && WatchRequested != null) WatchRequested(this, EventArgs.Empty);
+                return true;
+            }
+
+            // Enter, 撮影キー, Eは見えている枠を撮る. ほかのキーは, 下見をやめて元の枠に戻してから働く.
             if (key != Keys.Enter && keyData != captureKey && keyData != Keys.E && PreviewCancelRequested != null) PreviewCancelRequested(this, EventArgs.Empty);
 
             if (keyData == Keys.Escape && menuOpen)

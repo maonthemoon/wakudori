@@ -9,6 +9,8 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="../../src/WatchDetector.cs" />
+    <Compile Include="../../src/WatchDoneText.cs" />
+    <Compile Include="../../src/WatchFinishedEventArgs.cs" />
     <Compile Include="../../src/WatchTime.cs" />
   </ItemGroup>
 </Project>

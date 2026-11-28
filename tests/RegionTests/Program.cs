@@ -125,6 +125,13 @@ internal static class RegionTests
             RegionStore l2 = RegionStore.Load(P("last.json"), out err);
             Check("last only: roundtrip", err == null && Same(l, l2) && l2.Regions.Count == 0);
 
+            // lastに以前の見張り名が残っていても, 座標を読み込み, 保存時に名前は残さない.
+            Write(P("old-last.json"), @"{ ""last"": { ""x"": 1, ""y"": 2, ""width"": 3, ""height"": 4, ""name"": ""古い範囲名"" } }");
+            RegionStore oldLast = RegionStore.Load(P("old-last.json"), out err);
+            Check("old last name: bounds still load", err == null && Same(l, oldLast));
+            oldLast.Save(P("old-last.json"));
+            Check("old last name: omitted on save", !File.ReadAllText(P("old-last.json")).Contains("\"name\""));
+
             // 空
             new RegionStore().Save(P("empty.json"));
             RegionStore e2 = RegionStore.Load(P("empty.json"), out err);

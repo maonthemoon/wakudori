@@ -31,6 +31,7 @@ namespace Wakudori
 
         public string RegionName { get; private set; }
         public int ShotCount { get; private set; }
+        public event EventHandler ShotSaved;
         public event EventHandler<WatchFinishedEventArgs> Finished;
 
         public WatchSession(Rectangle region, string saveDir, string regionName)
@@ -78,9 +79,10 @@ namespace Wakudori
                 return;
             }
 
+            bool saved;
             try
             {
-                bool saved = CaptureAndSave();
+                saved = CaptureAndSave();
                 frame.UpdateStatus(ShotCount, elapsed.Elapsed, saved);
             }
             catch (Exception ex)
@@ -88,6 +90,8 @@ namespace Wakudori
                 Fail("WatchSession.Tick", ex);
                 return;
             }
+
+            if (saved && ShotSaved != null) ShotSaved(this, EventArgs.Empty);
 
             if (ShotCount >= MaxShots)
             {

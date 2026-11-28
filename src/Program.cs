@@ -111,6 +111,7 @@ namespace Wakudori
         private InlineNameEditor editor; // 名前を変えている最中の入力欄
 
         public event EventHandler Finished;
+        public event Action<Rectangle, string> WatchRequested;
 
         public CaptureSession(string saveDir, Keys captureKey, Size defaultFrameSize, Rectangle[] monitors, FrozenScreens frozen)
         {
@@ -155,6 +156,7 @@ namespace Wakudori
                 bool listHere = monitors[i].Contains(cursor);
                 OverlayForm f = new OverlayForm(i, monitors[i], Program.GetMonitorDpi(monitors[i]), selection, store.Regions, listHere, frozen != null ? frozen.Get(i) : null, captureKey);
                 f.CaptureRequested += OnCaptureRequested;
+                f.WatchRequested += OnWatchRequested;
                 f.CancelRequested += OnCancelRequested;
                 f.LiveToggleRequested += OnLiveToggleRequested;
                 f.EditRequested += OnEditRequested;
@@ -249,7 +251,7 @@ namespace Wakudori
         }
 
         // 一覧の名前にカーソルが乗った: 枠ごとその範囲へ動かして見せる. 離れたら(region == null)元の枠に戻す.
-        // 下見中にEnterを押すと, 見えている範囲を撮る.
+        // 下見中にEnterやWを押すと, 見えている範囲を撮るか見張る.
         private void OnRegionHovered(object sender, SavedRegion region)
         {
             if (capturing || closed) return;
@@ -468,6 +470,26 @@ namespace Wakudori
             BeginCapture((Control)sender, selection.Frame, selection.RegionName, false, true);
         }
 
+        private void OnWatchRequested(object sender, EventArgs e)
+        {
+            if (capturing || closed) return;
+            capturing = true;
+            Rectangle frame = selection.Frame;
+            string name = selection.RegionName;
+
+            // キー処理の後にすべての選択画面を閉じ, それから見張りの窓を出す.
+            ((Control)sender).BeginInvoke((MethodInvoker)delegate
+            {
+                if (closed) return;
+                foreach (OverlayForm f in forms) f.Hide();
+                SaveLast(frame);
+                if (closed) return;
+                CloseAll();
+                Action<Rectangle, string> handler = WatchRequested;
+                if (handler != null) handler(frame, name);
+            });
+        }
+
         private void OnEditRequested(object sender, EventArgs e)
         {
             BeginCapture((Control)sender, selection.Frame, selection.RegionName, true, true);
@@ -573,7 +595,7 @@ namespace Wakudori
             return bmp;
         }
 
-        // 撮った範囲を「前回の範囲」として残す(A2). Escで閉じたときは残さない(A8).
+        // 撮った範囲や見張る範囲を「前回の範囲」として残す(A2).
         private void SaveLast(Rectangle frame)
         {
             if (!store.CanSave) return; // 壊れたファイルは上書きしない(読み込み時に知らせ済み)
